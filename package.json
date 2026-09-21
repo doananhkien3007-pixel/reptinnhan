@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "description": "Facebook Messenger Webhook for Fanpage deployed on Vercel",
   "scripts": {
-    "dev": "vercel dev",
-    "build": "tsc"
+    "dev": "vercel dev"
   },
   "dependencies": {
     "axios": "^1.7.9"
