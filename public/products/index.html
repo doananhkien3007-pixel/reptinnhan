@@ -50,7 +50,7 @@
       <div class="grid">
         <label>SKU<input id="sku" required></label>
         <label>Tên sản phẩm<input id="name" required></label>
-        <label>Trạng thái<select id="product-status"><option value="active">Đang bật</option><option value="inactive">Đang tắt</option></select></label>
+        <label>Trạng thái<select id="product-status"><option value="active">Còn hàng</option><option value="inactive">Hết hàng</option></select></label>
         <label>Giá gốc<input id="price" type="number" min="0" step="1000" required></label>
         <label>Giá sale<input id="sale-price" type="number" min="0" step="1000"></label>
         <label>Chất liệu<input id="material"></label>
@@ -58,26 +58,24 @@
         <label>Hướng dẫn size<textarea id="size-guide"></textarea></label>
       </div>
 
-      <h2 style="margin-top:20px">Màu và tồn kho theo size</h2>
+      <h2 style="margin-top:20px">Màu và size</h2>
       <div id="variants"></div>
+      <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e5e7eb;">
+        <h2>Hình ảnh sản phẩm</h2>
+        <p class="muted">Lưu sản phẩm trước, chọn màu rồi upload nhiều hình. Chọn “Ảnh chính” để đánh dấu ảnh đại diện; các ảnh còn lại là ảnh phụ.</p>
+        <div class="grid">
+          <label>Màu của ảnh<input id="image-color" placeholder="Ví dụ: Đen"></label>
+          <label>Hình ảnh<input id="image-files" type="file" accept="image/*" multiple></label>
+          <label style="flex-direction:row; align-items:center; gap:8px; margin-top:24px;"><input id="image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
+        </div>
+        <div class="actions"><button type="button" id="upload-images" class="secondary">Upload hình</button><span id="upload-status" class="muted"></span></div>
+      </div>
       <div class="actions">
         <button type="button" id="add-variant" class="secondary">+ Thêm màu / size</button>
         <button type="submit">Lưu sản phẩm</button>
         <button type="button" id="cancel-edit" class="secondary" hidden>Huỷ sửa</button>
       </div>
     </form>
-
-    <div class="card">
-      <h2>Upload hình sản phẩm</h2>
-      <p class="muted">Lưu sản phẩm trước, chọn màu rồi upload nhiều hình. Chọn “Ảnh chính” để đánh dấu ảnh đại diện; các ảnh còn lại là ảnh phụ.</p>
-      <div class="grid">
-        <label>Sản phẩm<select id="image-product"></select></label>
-        <label>Màu<input id="image-color" placeholder="Ví dụ: Đen"></label>
-        <label>Hình ảnh<input id="image-files" type="file" accept="image/*" multiple></label>
-        <label style="flex-direction:row; align-items:center; gap:8px; margin-top:24px;"><input id="image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
-      </div>
-      <div class="actions"><button type="button" id="upload-images">Upload hình</button><span id="upload-status" class="muted"></span></div>
-    </div>
 
     <div class="card"><h2>Danh sách sản phẩm</h2><div id="products">Đang tải...</div></div>
   </main>
@@ -147,15 +145,13 @@
     }
 
     function renderProducts() {
-      const select = $('image-product');
-      select.innerHTML = '<option value="">Chọn sản phẩm</option>' + products.map((p) => `<option value="${p.id}">${escapeHtml(p.sku)} - ${escapeHtml(p.name)}</option>`).join('');
       $('products').innerHTML = products.length ? products.map((product) => {
         const grouped = {};
         (product.variants || []).forEach((variant) => { (grouped[variant.color] ||= []).push(`${variant.size}: ${variant.stock}`); });
-        return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">SKU: ${escapeHtml(product.sku)} · Giá: ${Number(product.price).toLocaleString('vi-VN')}đ${product.sale_price != null ? ` · Sale: ${Number(product.sale_price).toLocaleString('vi-VN')}đ` : ''}</div></div><span class="badge ${product.status === 'active' ? '' : 'off'}">${product.status === 'active' ? 'Đang bật' : 'Đang tắt'}</span></div>
+        return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">SKU: ${escapeHtml(product.sku)} · Giá: ${Number(product.price).toLocaleString('vi-VN')}đ${product.sale_price != null ? ` · Sale: ${Number(product.sale_price).toLocaleString('vi-VN')}đ` : ''}</div></div><span class="badge ${product.status === 'active' ? '' : 'off'}">${product.status === 'active' ? 'Còn hàng' : 'Hết hàng'}</span></div>
           <div class="variants">${Object.entries(grouped).map(([color, values]) => `<div class="variant-color"><b>${escapeHtml(color)}</b>: ${escapeHtml(values.join(' · '))}</div>`).join('') || '<span class="muted">Chưa có màu/size</span>'}</div>
           <div class="images">${(product.images || []).map((image) => `<div class="image-item ${image.is_primary ? 'primary' : ''}"><img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}"><span>${image.is_primary ? 'Ảnh chính' : 'Ảnh phụ'}</span></div>`).join('')}</div>
-          <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="warning" data-toggle="${product.id}" data-status="${product.status}">${product.status === 'active' ? 'Tắt' : 'Bật'}</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
+          <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="warning" data-toggle="${product.id}" data-status="${product.status}">${product.status === 'active' ? 'Đánh dấu hết hàng' : 'Đánh dấu còn hàng'}</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
       }).join('') : '<p class="muted">Chưa có sản phẩm.</p>';
       document.querySelectorAll('[data-edit]').forEach((button) => button.addEventListener('click', () => editProduct(products.find((p) => p.id === Number(button.dataset.edit)))));
       document.querySelectorAll('[data-toggle]').forEach((button) => button.addEventListener('click', () => toggleProduct(Number(button.dataset.toggle), button.dataset.status)));
@@ -195,10 +191,10 @@
 
     function readFileAsDataUrl(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
     async function uploadImages() {
-      const productId = $('image-product').value;
+      const productId = editingId;
       const color = $('image-color').value.trim();
       const files = [...$('image-files').files];
-      if (!productId || !color || !files.length) { $('upload-status').textContent = 'Chọn sản phẩm, màu và hình ảnh.'; return; }
+      if (!productId || !color || !files.length) { $('upload-status').textContent = 'Hãy lưu sản phẩm, chọn màu và hình ảnh.'; return; }
       try {
         for (const [index, file] of files.entries()) {
           $('upload-status').textContent = `Đang upload ${index + 1}/${files.length}...`;
