@@ -1,5 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+// Biến global lưu tạm tin nhắn trên RAM (Chỉ dùng để test/prototype, có thể mất khi server sleep)
+(global as any).messagesDB = (global as any).messagesDB || [];
+
 // Hàm gửi tin nhắn qua Facebook Send API
 async function callSendAPI(senderId: string, messageText: string) {
   const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
@@ -32,6 +35,13 @@ async function callSendAPI(senderId: string, messageText: string) {
 
     if (response.ok) {
       console.log('✅ TRẠNG THÁI: Gửi tin nhắn thành công!');
+      // Lưu lại tin nhắn bot gửi
+      (global as any).messagesDB.push({
+        type: 'bot',
+        text: replyText,
+        senderId: senderId,
+        time: new Date().toISOString()
+      });
       return true;
     } else {
       const errorData = await response.json();
@@ -45,7 +55,19 @@ async function callSendAPI(senderId: string, messageText: string) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 1. Xác minh Webhook (Method GET) - Giữ nguyên
+  const path = req.url?.split('?')[0];
+
+  // API lấy danh sách tin nhắn để hiển thị lên Web
+  if (path === '/api/messages') {
+    if (req.method === 'GET') {
+      return res.status(200).json((global as any).messagesDB);
+    } else if (req.method === 'DELETE') {
+      (global as any).messagesDB = [];
+      return res.status(200).json({ success: true });
+    }
+  }
+
+  // 1. Xác minh Webhook (Method GET)
   if (req.method === 'GET') {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -56,7 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (mode === 'subscribe' && token === FB_VERIFY_TOKEN) {
       console.log('✅ Webhook Verified!');
       return res.status(200).send(challenge);
-    } else {
+    } else if (mode) {
       console.error('❌ Xác minh Webhook thất bại. Token không khớp.');
       return res.status(403).send('Forbidden');
     }
@@ -67,18 +89,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = req.body;
 
     if (body.object === 'page') {
-      // Mảng chứa các promise để chờ (await) Vercel không ngắt function sớm
       const promises: Promise<any>[] = [];
 
       body.entry?.forEach((entry: any) => {
         entry.messaging?.forEach((webhookEvent: any) => {
-          // Bỏ qua tin nhắn do chính Page gửi (echo) để tránh bot tự trả lời tạo vòng lặp
           if (webhookEvent.message?.is_echo) {
             console.log('🔄 Bỏ qua tin nhắn echo từ chính Fanpage gửi.');
             return;
           }
 
-          // Kiểm tra xem có text gửi tới không
           if (webhookEvent.message && webhookEvent.message.text) {
             const senderId = webhookEvent.sender?.id;
             const messageText = webhookEvent.message?.text;
@@ -86,18 +105,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             console.log('\n--- TIN KHÁCH GỬI ---');
             console.log(`Sender ID: ${senderId}`);
             console.log(`Text: "${messageText}"`);
+
+            // Lưu tin nhắn của khách vào biến global
+            (global as any).messagesDB.push({
+              type: 'user',
+              text: messageText,
+              senderId: senderId,
+              time: new Date().toISOString()
+            });
             
-            // Xử lý gửi trả lời khách
             promises.push(callSendAPI(senderId, messageText));
           }
         });
       });
 
-      // Bắt buộc phải await để các tác vụ gọi Facebook API hoàn thành 
-      // trước khi Vercel đóng kết nối Serverless function
       await Promise.all(promises);
-
-      // Trả về 200 OK cho Facebook biết đã nhận được và xử lý xong
       return res.status(200).send('EVENT_RECEIVED');
     } else {
       return res.status(404).send('Not Found');
