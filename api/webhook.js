@@ -5,6 +5,31 @@ if (!global.messages) {
   global.messages = [];
 }
 
+async function sendMessengerReply(recipientId, text) {
+  const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
+  if (!pageAccessToken || !recipientId) {
+    console.warn('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
+    return;
+  }
+
+  const response = await fetch(
+    `https://graph.facebook.com/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        message: { text }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Facebook API ${response.status}: ${errorBody}`);
+  }
+}
+
 export default async function handler(req, res) {
   const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || process.env.VERIFY_TOKEN || 'my_secure_verify_token';
 
@@ -60,7 +85,14 @@ export default async function handler(req, res) {
           });
           
           console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
-          // ĐÃ XOÁ BỎ HOÀN TOÀN TÍNH NĂNG TỰ ĐỘNG NHẮN TIN TRẢ LỜI LẠI KHÁCH HÀNG.
+
+          // Tự động trả lời khách hàng qua Facebook Messenger.
+          try {
+            await sendMessengerReply(senderPsid, 'Hello');
+            console.log(`Đã trả lời khách hàng ${senderPsid}`);
+          } catch (error) {
+            console.error('Không thể gửi tin nhắn trả lời:', error);
+          }
         }
       }
 
