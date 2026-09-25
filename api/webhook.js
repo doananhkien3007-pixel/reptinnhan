@@ -1,6 +1,14 @@
 // api/webhook.js
 import OpenAI from 'openai';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from './services/supabase.js';
+import {
+  findMentionedProduct,
+  getOrCreateConversation,
+  getProductContext,
+  getRecentConversationMessages,
+  saveConversationMessage,
+  updateConversationProduct
+} from './services/products.js';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {
@@ -15,20 +23,6 @@ if (!global.taskLogs) {
 if (typeof global.openaiSystemPrompt !== 'string') {
   global.openaiSystemPrompt = process.env.OPENAI_SYSTEM_PROMPT ||
     'Bạn là trợ lý chăm sóc khách hàng của Emi House - Váy Thiết Kế. Trả lời bằng tiếng Việt, lịch sự, ngắn gọn và tự nhiên.';
-}
-
-let supabase;
-
-function getSupabase() {
-  if (supabase !== undefined) return supabase;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    supabase = null;
-    return supabase;
-  }
-  supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  return supabase;
 }
 
 async function persistTaskLog(action, detail, createdAt) {
@@ -121,13 +115,14 @@ async function saveSystemPrompt(prompt) {
   if (error) throw new Error(`Không thể lưu System Prompt Supabase: ${error.message}`);
 }
 
-async function saveMessage(senderId, direction, text) {
+async function saveMessage(senderId, direction, text, conversationId = null) {
   const client = getSupabase();
   if (!client) return;
   const { error } = await client.from('messenger_messages').insert({
     sender_id: senderId,
     direction,
-    text
+    text,
+    conversation_id: conversationId
   });
   if (error) throw new Error(`Không thể lưu tin nhắn Supabase: ${error.message}`);
 }
@@ -173,7 +168,7 @@ async function getStoredTaskLogs() {
 
 let openai;
 
-async function generateOpenAIReply(receivedText) {
+async function generateOpenAIReply(receivedText, { productContext, history = [] } = {}) {
   if (!process.env.OPENAI_API_KEY) {
     addTaskLog('OpenAI', 'Lỗi: thiếu OPENAI_API_KEY');
     throw new Error('Chưa cấu hình OPENAI_API_KEY.');
@@ -183,10 +178,26 @@ async function generateOpenAIReply(receivedText) {
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
 
+  const fixedProductRules = [
+    'Bạn là nhân viên tư vấn thời trang của shop, xưng "em" và gọi khách là "chị".',
+    'Chỉ được sử dụng dữ liệu trong SẢN PHẨM ĐANG TƯ VẤN và LỊCH SỬ HỘI THOẠI.',
+    'Không tự bịa giá, màu, size, tồn kho hoặc chính sách.',
+    'Nếu dữ liệu thiếu, hãy hỏi lại khách; nếu chưa xác định sản phẩm, trả lời đúng ý: "Dạ chị đang quan tâm mẫu nào ạ? Chị gửi hình hoặc tên mẫu giúp em nhé 🌷".',
+    'Trả lời bằng tiếng Việt tự nhiên, ngắn gọn 1-3 câu và không nói mình là AI.'
+  ].join('\n');
+  const historyText = history.length
+    ? history.map((message) => `${message.direction === 'inbound' ? 'Khách' : 'Shop'}: ${message.text}`).join('\n')
+    : 'Chưa có lịch sử hội thoại.';
+  const input = [
+    productContext || 'SẢN PHẨM ĐANG TƯ VẤN: Chưa xác định. Không được đoán sản phẩm.',
+    `LỊCH SỬ HỘI THOẠI:\n${historyText}`,
+    `TIN NHẮN KHÁCH:\n"${receivedText}"`
+  ].join('\n\n');
+
   const response = await openai.responses.create({
     model: process.env.OPENAI_MODEL || 'gpt-6-luna',
-    instructions: global.openaiSystemPrompt,
-    input: receivedText
+    instructions: `${global.openaiSystemPrompt}\n\n${fixedProductRules}`,
+    input
   });
 
   const reply = response.output_text?.trim();
@@ -225,7 +236,7 @@ async function sendMessengerAction(recipientId, action) {
   addTaskLog('Messenger', `Đã gửi ${action} cho khách ${recipientId}`);
 }
 
-async function sendMessengerMessage(recipientId, text) {
+async function sendMessengerMessage(recipientId, text, conversationId = null) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
   if (!pageAccessToken || !recipientId) {
@@ -248,18 +259,40 @@ async function sendMessengerMessage(recipientId, text) {
     throw new Error(`Facebook API ${response.status}: ${errorBody}`);
   }
   addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
-  await saveMessage(recipientId, 'outbound', text);
+  if (conversationId) {
+    await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text });
+  } else {
+    await saveMessage(recipientId, 'outbound', text);
+  }
 }
 
-async function replyWithOpenAI(recipientId, receivedText) {
+async function replyWithOpenAI(recipientId, receivedText, conversationId = null) {
   await sendMessengerAction(recipientId, 'typing_on');
-  const reply = await generateOpenAIReply(receivedText);
+  let productContext = null;
+  let history = [];
+
+  if (conversationId) {
+    const conversation = await getOrCreateConversation(recipientId);
+    let productId = conversation.current_product_id;
+    const mentionedProduct = await findMentionedProduct(receivedText);
+    if (mentionedProduct) {
+      productId = mentionedProduct.id;
+      if (productId !== conversation.current_product_id) {
+        await updateConversationProduct(conversation.id, productId);
+        addTaskLog('Product', `Đã chuyển sản phẩm tư vấn sang ${mentionedProduct.sku} - ${mentionedProduct.name}`);
+      }
+    }
+    if (productId) productContext = await getProductContext(productId);
+    history = await getRecentConversationMessages(conversation.id, 10);
+  }
+
+  const reply = await generateOpenAIReply(receivedText, { productContext, history });
 
   const delayMs = 500 + Math.floor(Math.random() * 1001);
   addTaskLog('Auto-reply', `Chờ thêm ${delayMs}ms trước khi gửi câu trả lời`);
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 
-  await sendMessengerMessage(recipientId, reply);
+  await sendMessengerMessage(recipientId, reply, conversationId);
 }
 
 export default async function handler(req, res) {
@@ -370,8 +403,10 @@ export default async function handler(req, res) {
             text: receivedText,
             time: currentTime
           });
+          let conversation = null;
           try {
-            await saveMessage(senderPsid, 'inbound', receivedText);
+            conversation = await getOrCreateConversation(senderPsid);
+            await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
           } catch (error) {
             addTaskLog('Supabase', error.message);
           }
@@ -381,7 +416,7 @@ export default async function handler(req, res) {
           // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
           if (global.autoReplyEnabled) {
             // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
-            replyWithOpenAI(senderPsid, receivedText)
+            replyWithOpenAI(senderPsid, receivedText, conversation?.id || null)
               .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
               .catch((error) => console.error('Không thể tạo/gửi tin nhắn trả lời:', error));
           } else {
