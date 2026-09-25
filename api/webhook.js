@@ -5,7 +5,7 @@ if (!global.messages) {
   global.messages = [];
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || process.env.VERIFY_TOKEN || 'my_secure_verify_token';
 
   // 1. Xử lý yêu cầu xác minh từ Facebook (GET) VÀ trả về danh sách tin nhắn cho Web
