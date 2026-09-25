@@ -4,15 +4,20 @@
 if (!global.messages) {
   global.messages = [];
 }
+if (typeof global.autoReplyEnabled !== 'boolean') {
+  global.autoReplyEnabled = true;
+}
 
 async function sendMessengerReply(recipientId, text) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
+  const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
+  const replyDelayMs = Number(process.env.REPLY_DELAY_MS || 3000);
   if (!pageAccessToken || !recipientId) {
     console.warn('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
     return;
   }
 
-  const apiUrl = `https://graph.facebook.com/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
   const sendRequest = (payload) => fetch(apiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29,8 +34,8 @@ async function sendMessengerReply(recipientId, text) {
     throw new Error(`Facebook API ${typingResponse.status}: ${errorBody}`);
   }
 
-  // Giữ trạng thái "đang nhập..." trong khoảng 1 giây.
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // Giữ trạng thái "đang nhập..." để phản hồi tự nhiên hơn.
+  await new Promise((resolve) => setTimeout(resolve, replyDelayMs));
 
   const response = await sendRequest({
     recipient: { id: recipientId },
@@ -53,6 +58,10 @@ export default async function handler(req, res) {
     const challenge = req.query['hub.challenge'];
     const action = req.query['action'];
 
+    if (action === 'auto_reply_status') {
+      return res.status(200).json({ enabled: global.autoReplyEnabled });
+    }
+
     // Facebook xác minh Webhook
     if (mode && token) {
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
@@ -73,6 +82,13 @@ export default async function handler(req, res) {
 
   // 2. Xử lý tin nhắn đến từ Facebook (POST)
   if (req.method === 'POST') {
+    const action = req.query['action'];
+
+    if (action === 'toggle_auto_reply') {
+      global.autoReplyEnabled = !global.autoReplyEnabled;
+      return res.status(200).json({ enabled: global.autoReplyEnabled });
+    }
+
     const body = req.body;
 
     if (body.object === 'page') {
@@ -99,12 +115,16 @@ export default async function handler(req, res) {
           
           console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
 
-          // Tự động trả lời khách hàng qua Facebook Messenger.
-          try {
-            await sendMessengerReply(senderPsid, 'Hello');
-            console.log(`Đã trả lời khách hàng ${senderPsid}`);
-          } catch (error) {
-            console.error('Không thể gửi tin nhắn trả lời:', error);
+          // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
+          if (global.autoReplyEnabled) {
+            try {
+              await sendMessengerReply(senderPsid, 'Hello');
+              console.log(`Đã trả lời khách hàng ${senderPsid}`);
+            } catch (error) {
+              console.error('Không thể gửi tin nhắn trả lời:', error);
+            }
+          } else {
+            console.log('Tự động trả lời đang tắt.');
           }
         }
       }

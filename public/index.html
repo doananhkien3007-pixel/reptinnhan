@@ -13,11 +13,18 @@
     .time { font-size: 11px; color: #65676b; margin-left: 5px; }
     .sender { font-size: 12px; font-weight: bold; color: #1877f2; margin-bottom: 2px; }
     #chat-box { height: 400px; overflow-y: auto; padding-right: 10px; }
+    .reply-control { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; padding: 10px 12px; background: #f7f8fa; border-radius: 8px; }
+    #reply-toggle { border: 0; border-radius: 6px; padding: 8px 14px; color: white; cursor: pointer; background: #1877f2; }
+    #reply-toggle.off { background: #65676b; }
   </style>
 </head>
 <body>
   <div class="container">
     <h2>💬 Tin nhắn từ Khách hàng</h2>
+    <div class="reply-control">
+      <span id="reply-status">Đang kiểm tra trạng thái...</span>
+      <button id="reply-toggle" type="button">...</button>
+    </div>
     <div id="chat-box">Đang tải tin nhắn...</div>
   </div>
 
@@ -47,8 +54,39 @@
       }
     }
 
+    let autoReplyEnabled = true;
+
+    function updateReplyControl() {
+      const status = document.getElementById('reply-status');
+      const button = document.getElementById('reply-toggle');
+      status.textContent = autoReplyEnabled ? 'Tự động trả lời: BẬT' : 'Tự động trả lời: TẮT';
+      button.textContent = autoReplyEnabled ? 'Tắt' : 'Bật';
+      button.classList.toggle('off', !autoReplyEnabled);
+    }
+
+    async function loadReplyStatus() {
+      const res = await fetch('/api/webhook?action=auto_reply_status');
+      const data = await res.json();
+      autoReplyEnabled = data.enabled;
+      updateReplyControl();
+    }
+
+    document.getElementById('reply-toggle').addEventListener('click', async () => {
+      const res = await fetch('/api/webhook?action=toggle_auto_reply', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert('Không thể đổi trạng thái trả lời tự động.');
+        return;
+      }
+      autoReplyEnabled = data.enabled;
+      updateReplyControl();
+    });
+
     // Gọi lần đầu tiên
     fetchMessages();
+    loadReplyStatus().catch(() => {
+      document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
+    });
     
     // Tự động làm mới mỗi 10 giây (giảm tải Log Vercel)
     setInterval(fetchMessages, 10000);
