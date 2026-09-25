@@ -69,6 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // 1. Xác minh Webhook (Method GET)
   if (req.method === 'GET') {
+    console.log('--- NHẬN REQUEST GET (XÁC MINH) ---', req.query);
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
@@ -81,12 +82,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else if (mode) {
       console.error('❌ Xác minh Webhook thất bại. Token không khớp.');
       return res.status(403).send('Forbidden');
+    } else {
+      // Nếu không có hub.mode, có thể ai đó vô tình truy cập GET /api/webhook
+      return res.status(200).send('Webhook đang hoạt động (Chờ POST từ Facebook).');
     }
   }
 
   // 2. Nhận tin nhắn từ Fanpage (Method POST)
   if (req.method === 'POST') {
+    console.log('--- NHẬN REQUEST POST TỪ FACEBOOK ---');
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+
     const body = req.body;
+
+    // Trả về 400 nếu body rỗng
+    if (!body) {
+      console.error('❌ Body trống!');
+      return res.status(400).send('Bad Request');
+    }
 
     if (body.object === 'page') {
       const promises: Promise<any>[] = [];
@@ -120,8 +133,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
 
       await Promise.all(promises);
+      console.log('✅ Đã xử lý xong POST request, trả về 200 OK cho Facebook.');
       return res.status(200).send('EVENT_RECEIVED');
     } else {
+      console.error('❌ Event không phải từ Fanpage (object !== page)');
       return res.status(404).send('Not Found');
     }
   }
