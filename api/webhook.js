@@ -55,10 +55,9 @@ async function generateOpenAIReply(receivedText) {
   return reply;
 }
 
-async function sendMessengerReply(recipientId, text) {
+async function sendMessengerAction(recipientId, action) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
-  const replyDelayMs = Number(process.env.REPLY_DELAY_MS || 3000);
   if (!pageAccessToken || !recipientId) {
     console.warn('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
     return;
@@ -71,23 +70,34 @@ async function sendMessengerReply(recipientId, text) {
     body: JSON.stringify(payload)
   });
 
-  const typingResponse = await sendRequest({
-    recipient: { id: recipientId },
-    sender_action: 'typing_on'
-  });
-
-  if (!typingResponse.ok) {
-    const errorBody = await typingResponse.text();
-    throw new Error(`Facebook API ${typingResponse.status}: ${errorBody}`);
-  }
-  addTaskLog('Messenger', `Đã gửi typing_on cho khách ${recipientId}`);
-
-  // Giữ trạng thái "đang nhập..." để phản hồi tự nhiên hơn.
-  await new Promise((resolve) => setTimeout(resolve, replyDelayMs));
-
   const response = await sendRequest({
     recipient: { id: recipientId },
-    message: { text }
+    sender_action: action
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Facebook API ${response.status}: ${errorBody}`);
+  }
+  addTaskLog('Messenger', `Đã gửi ${action} cho khách ${recipientId}`);
+}
+
+async function sendMessengerMessage(recipientId, text) {
+  const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
+  const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
+  if (!pageAccessToken || !recipientId) {
+    console.warn('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
+    return;
+  }
+
+  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      recipient: { id: recipientId },
+      message: { text }
+    })
   });
 
   if (!response.ok) {
@@ -95,6 +105,17 @@ async function sendMessengerReply(recipientId, text) {
     throw new Error(`Facebook API ${response.status}: ${errorBody}`);
   }
   addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
+}
+
+async function replyWithOpenAI(recipientId, receivedText) {
+  await sendMessengerAction(recipientId, 'typing_on');
+  const reply = await generateOpenAIReply(receivedText);
+
+  const delayMs = 500 + Math.floor(Math.random() * 1001);
+  addTaskLog('Auto-reply', `Chờ thêm ${delayMs}ms trước khi gửi câu trả lời`);
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  await sendMessengerMessage(recipientId, reply);
 }
 
 export default async function handler(req, res) {
@@ -200,8 +221,7 @@ export default async function handler(req, res) {
           // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
           if (global.autoReplyEnabled) {
             // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
-            generateOpenAIReply(receivedText)
-              .then((reply) => sendMessengerReply(senderPsid, reply))
+            replyWithOpenAI(senderPsid, receivedText)
               .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
               .catch((error) => console.error('Không thể tạo/gửi tin nhắn trả lời:', error));
           } else {
