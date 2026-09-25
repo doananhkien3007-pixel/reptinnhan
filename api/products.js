@@ -84,9 +84,9 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST' && action === 'upload_image') {
-      const productId = req.body?.product_id;
+      const productId = Number(req.body?.product_id);
       const dataUrl = String(req.body?.data || '');
-      if (!productId || !dataUrl.startsWith('data:')) throw new Error('Thiếu product_id hoặc dữ liệu ảnh.');
+      if (!Number.isInteger(productId) || productId <= 0 || !dataUrl.startsWith('data:')) throw new Error('Thiếu product_id hoặc dữ liệu ảnh.');
       const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
       if (!match) throw new Error('Định dạng ảnh không hợp lệ.');
 
@@ -104,8 +104,14 @@ export default async function handler(req, res) {
       if (uploadError) throw new Error(`Không thể upload ảnh: ${uploadError.message}`);
 
       const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(path);
-      const { data: product, error: productError } = await supabase.from('products').select('images').eq('id', productId).single();
+      const { data: products, error: productError } = await supabase
+        .from('products')
+        .select('images')
+        .eq('id', productId)
+        .limit(1);
       if (productError) throw new Error(`Không thể lấy sản phẩm để lưu ảnh: ${productError.message}`);
+      const product = products?.[0];
+      if (!product) throw new Error('Không tìm thấy sản phẩm để lưu ảnh.');
       const color = String(req.body?.color || '').trim();
       const isPrimary = Boolean(req.body?.is_primary);
       const images = Array.isArray(product.images) ? product.images : [];
