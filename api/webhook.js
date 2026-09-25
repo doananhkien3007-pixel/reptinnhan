@@ -8,13 +8,30 @@ if (!global.messages) {
 if (typeof global.autoReplyEnabled !== 'boolean') {
   global.autoReplyEnabled = true;
 }
+if (!global.taskLogs) {
+  global.taskLogs = [];
+}
+
+function addTaskLog(action, detail) {
+  global.taskLogs.push({
+    time: new Date().toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour12: false
+    }),
+    action,
+    detail
+  });
+  if (global.taskLogs.length > 200) global.taskLogs.shift();
+}
 
 let openai;
 
 async function generateOpenAIReply(receivedText) {
   if (!process.env.OPENAI_API_KEY) {
+    addTaskLog('OpenAI', 'Lỗi: thiếu OPENAI_API_KEY');
     throw new Error('Chưa cấu hình OPENAI_API_KEY.');
   }
+  addTaskLog('OpenAI', `Gửi nội dung khách: "${receivedText.slice(0, 120)}"`);
   if (!openai) {
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
@@ -28,8 +45,10 @@ async function generateOpenAIReply(receivedText) {
 
   const reply = response.output_text?.trim();
   if (!reply) {
+    addTaskLog('OpenAI', 'Lỗi: không có nội dung trả lời');
     throw new Error('OpenAI không trả về nội dung trả lời.');
   }
+  addTaskLog('OpenAI', `Nhận câu trả lời: "${reply.slice(0, 160)}"`);
   return reply;
 }
 
@@ -58,6 +77,7 @@ async function sendMessengerReply(recipientId, text) {
     const errorBody = await typingResponse.text();
     throw new Error(`Facebook API ${typingResponse.status}: ${errorBody}`);
   }
+  addTaskLog('Messenger', `Đã gửi typing_on cho khách ${recipientId}`);
 
   // Giữ trạng thái "đang nhập..." để phản hồi tự nhiên hơn.
   await new Promise((resolve) => setTimeout(resolve, replyDelayMs));
@@ -71,6 +91,7 @@ async function sendMessengerReply(recipientId, text) {
     const errorBody = await response.text();
     throw new Error(`Facebook API ${response.status}: ${errorBody}`);
   }
+  addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
 }
 
 export default async function handler(req, res) {
@@ -87,11 +108,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ enabled: global.autoReplyEnabled });
     }
 
+    if (action === 'get_task_logs') {
+      return res.status(200).json(global.taskLogs);
+    }
+
     if (action === 'test_openai') {
+      addTaskLog('Web', 'Bắt đầu test kết nối OpenAI');
       try {
         const reply = await generateOpenAIReply('Trả lời đúng một từ: OK');
+        addTaskLog('Web', 'Test OpenAI thành công');
         return res.status(200).json({ ok: true, reply });
       } catch (error) {
+        addTaskLog('Web', `Test OpenAI thất bại: ${error.message}`);
         console.error('Kiểm tra OpenAI thất bại:', error);
         return res.status(500).json({ ok: false, error: error.message });
       }
@@ -121,6 +149,7 @@ export default async function handler(req, res) {
 
     if (action === 'toggle_auto_reply') {
       global.autoReplyEnabled = !global.autoReplyEnabled;
+      addTaskLog('Web', `Đã ${global.autoReplyEnabled ? 'bật' : 'tắt'} tự động trả lời`);
       return res.status(200).json({ enabled: global.autoReplyEnabled });
     }
 
@@ -136,6 +165,7 @@ export default async function handler(req, res) {
         // Nếu có tin nhắn văn bản
         if (webhookEvent.message && webhookEvent.message.text) {
           const receivedText = webhookEvent.message.text;
+          addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
           
           // LƯU TIN NHẮN VÀO BỘ NHỚ (Để hiển thị lên trang chủ)
           const currentTime = new Date().toLocaleTimeString('vi-VN', {
@@ -158,6 +188,7 @@ export default async function handler(req, res) {
               .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
               .catch((error) => console.error('Không thể tạo/gửi tin nhắn trả lời:', error));
           } else {
+            addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
             console.log('Tự động trả lời đang tắt.');
           }
         }

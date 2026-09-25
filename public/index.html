@@ -19,6 +19,10 @@
     .openai-control { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
     #test-openai { padding: 7px 12px; border: 1px solid #1877f2; border-radius: 6px; color: #1877f2; background: white; cursor: pointer; }
     #openai-status { font-size: 12px; color: #65676b; }
+    .task-log { margin-top: 15px; }
+    .task-log-header { display: flex; align-items: center; justify-content: space-between; }
+    .task-log-header button { padding: 6px 10px; border: 1px solid #ccd0d5; border-radius: 6px; background: white; cursor: pointer; }
+    #task-log { max-height: 180px; overflow-y: auto; padding: 10px; background: #1f2329; color: #d1d5db; border-radius: 6px; font: 12px/1.5 monospace; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -31,6 +35,13 @@
     <div class="openai-control">
       <button id="test-openai" type="button">Test kết nối OpenAI</button>
       <span id="openai-status"></span>
+    </div>
+    <div class="task-log">
+      <div class="task-log-header">
+        <strong>Task Log</strong>
+        <button id="refresh-log" type="button">Làm mới log</button>
+      </div>
+      <pre id="task-log">Chưa tải log.</pre>
     </div>
     <div id="chat-box">Đang tải tin nhắn...</div>
   </div>
@@ -109,8 +120,27 @@
       }
     });
 
+    async function loadTaskLogs() {
+      const res = await fetch('/api/webhook?action=get_task_logs');
+      const logs = await res.json();
+      document.getElementById('task-log').textContent = logs.length
+        ? logs.map(log => `[${log.time}] [${log.action}] ${log.detail}`).join('\n')
+        : 'Chưa có log.';
+      const logBox = document.getElementById('task-log');
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    document.getElementById('refresh-log').addEventListener('click', () => {
+      loadTaskLogs().catch(() => {
+        document.getElementById('task-log').textContent = 'Không tải được task log.';
+      });
+    });
+
     // Gọi lần đầu tiên
     fetchMessages();
+    loadTaskLogs().catch(() => {
+      document.getElementById('task-log').textContent = 'Không tải được task log.';
+    });
     loadReplyStatus().catch(() => {
       document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
     });
