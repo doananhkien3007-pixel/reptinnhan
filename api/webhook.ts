@@ -3,6 +3,9 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 // Biến global lưu tạm tin nhắn trên RAM (Chỉ dùng để test/prototype, có thể mất khi server sleep)
 (global as any).messagesDB = (global as any).messagesDB || [];
 
+// Biến global lưu các mid đã xử lý để tránh gửi trùng lặp
+(global as any).processedMids = (global as any).processedMids || new Set();
+
 // Hàm gửi tin nhắn qua Facebook Send API
 async function callSendAPI(senderId: string, messageText: string) {
   const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
@@ -63,6 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json((global as any).messagesDB);
     } else if (req.method === 'DELETE') {
       (global as any).messagesDB = [];
+      (global as any).processedMids.clear();
       return res.status(200).json({ success: true });
     }
   }
@@ -101,9 +105,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (webhookEvent.message && webhookEvent.message.text) {
             const senderId = webhookEvent.sender?.id;
             const messageText = webhookEvent.message?.text;
+            const messageMid = webhookEvent.message?.mid;
+
+            // Kiểm tra trùng lặp bằng message.mid
+            if (messageMid) {
+              if ((global as any).processedMids.has(messageMid)) {
+                console.log(`⏩ Bỏ qua tin nhắn trùng lặp (MID: ${messageMid})`);
+                return;
+              }
+              (global as any).processedMids.add(messageMid);
+            }
 
             console.log('\n--- TIN KHÁCH GỬI ---');
             console.log(`Sender ID: ${senderId}`);
+            if (messageMid) console.log(`Message MID: ${messageMid}`);
             console.log(`Text: "${messageText}"`);
 
             // Lưu tin nhắn của khách vào biến global
