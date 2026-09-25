@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tin nhắn từ Facebook</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h2 { color: #1877f2; text-align: center; }
+    .message { background: #e4e6eb; padding: 10px 15px; border-radius: 15px; margin-bottom: 10px; display: inline-block; max-width: 80%; }
+    .message-row { margin-bottom: 15px; }
+    .time { font-size: 11px; color: #65676b; margin-left: 5px; }
+    .sender { font-size: 12px; font-weight: bold; color: #1877f2; margin-bottom: 2px; }
+    #chat-box { height: 400px; overflow-y: auto; padding-right: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>💬 Tin nhắn từ Khách hàng</h2>
+    <div id="chat-box">Đang tải tin nhắn...</div>
+  </div>
+
+  <script>
+    async function fetchMessages() {
+      try {
+        const res = await fetch('/api/webhook?action=get_messages');
+        const messages = await res.json();
+        
+        const chatBox = document.getElementById('chat-box');
+        if (messages.length === 0) {
+          chatBox.innerHTML = '<p style="text-align:center; color:#65676b;">Chưa có tin nhắn nào.</p>';
+          return;
+        }
+
+        chatBox.innerHTML = messages.map(msg => 
+          '<div class="message-row">' +
+            '<div class="sender">ID Khách: ' + msg.senderId + ' <span class="time">' + msg.time + '</span></div>' +
+            '<div class="message">' + msg.text + '</div>' +
+          '</div>'
+        ).join('');
+        
+        // Tự động cuộn xuống dưới cùng
+        chatBox.scrollTop = chatBox.scrollHeight;
+      } catch (err) {
+        console.error('Lỗi khi lấy tin nhắn', err);
+      }
+    }
+
+    // Gọi lần đầu tiên
+    fetchMessages();
+    
+    // Tự động làm mới mỗi 3 giây
+    setInterval(fetchMessages, 3000);
+  </script>
+</body>
+</html>
