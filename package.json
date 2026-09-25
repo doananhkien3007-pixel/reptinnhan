@@ -1,0 +1,21 @@
+{
+  "name": "reptinnhan1111",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doananhkien3007-pixel/reptinnhan.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/doananhkien3007-pixel/reptinnhan/issues"
+  },
+  "homepage": "https://github.com/doananhkien3007-pixel/reptinnhan#readme"
+}
