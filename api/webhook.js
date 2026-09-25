@@ -65,7 +65,7 @@ async function loadSettings() {
   const { data, error } = await client
     .from('app_settings')
     .select('key, value')
-    .in('key', ['auto_reply_enabled', 'system_prompt']);
+    .eq('key', 'auto_reply_enabled');
   if (error) {
     console.error('Không thể tải cài đặt từ Supabase:', error.message);
     return;
@@ -75,9 +75,18 @@ async function loadSettings() {
     if (setting.key === 'auto_reply_enabled' && typeof setting.value?.enabled === 'boolean') {
       global.autoReplyEnabled = setting.value.enabled;
     }
-    if (setting.key === 'system_prompt' && typeof setting.value?.prompt === 'string') {
-      global.openaiSystemPrompt = setting.value.prompt;
-    }
+  }
+
+  const { data: promptRow, error: promptError } = await client
+    .from('system_prompts')
+    .select('prompt')
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle();
+  if (promptError) {
+    console.error('Không thể tải System Prompt từ Supabase:', promptError.message);
+  } else if (promptRow?.prompt) {
+    global.openaiSystemPrompt = promptRow.prompt;
   }
   global.settingsLoaded = true;
 }
@@ -91,6 +100,25 @@ async function saveSetting(key, value) {
     updated_at: new Date().toISOString()
   });
   if (error) throw new Error(`Không thể lưu cài đặt Supabase: ${error.message}`);
+}
+
+async function saveSystemPrompt(prompt) {
+  const client = getSupabase();
+  if (!client) return;
+
+  const { data: activePrompt, error: findError } = await client
+    .from('system_prompts')
+    .select('id')
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle();
+  if (findError) throw new Error(`Không thể tìm System Prompt Supabase: ${findError.message}`);
+
+  const query = activePrompt
+    ? client.from('system_prompts').update({ prompt, updated_at: new Date().toISOString() }).eq('id', activePrompt.id)
+    : client.from('system_prompts').insert({ name: 'default', prompt, is_active: true });
+  const { error } = await query;
+  if (error) throw new Error(`Không thể lưu System Prompt Supabase: ${error.message}`);
 }
 
 async function saveMessage(senderId, direction, text) {
@@ -313,7 +341,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'System Prompt không được để trống.' });
       }
       global.openaiSystemPrompt = prompt;
-      await saveSetting('system_prompt', { prompt });
+      await saveSystemPrompt(prompt);
       addTaskLog('Web', `Đã cập nhật System Prompt (${prompt.length} ký tự)`);
       return res.status(200).json({ prompt: global.openaiSystemPrompt });
     }
