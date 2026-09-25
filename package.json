@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/doananhkien3007-pixel/reptinnhan#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "openai": "^7.23.0"
   }
 }

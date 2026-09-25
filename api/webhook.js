@@ -1,5 +1,6 @@
 // api/webhook.js
 import OpenAI from 'openai';
+import { createClient } from '@supabase/supabase-js';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {
@@ -16,16 +17,130 @@ if (typeof global.openaiSystemPrompt !== 'string') {
     'Bạn là trợ lý chăm sóc khách hàng của Emi House - Váy Thiết Kế. Trả lời bằng tiếng Việt, lịch sự, ngắn gọn và tự nhiên.';
 }
 
+let supabase;
+
+function getSupabase() {
+  if (supabase !== undefined) return supabase;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    supabase = null;
+    return supabase;
+  }
+  supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return supabase;
+}
+
+async function persistTaskLog(action, detail, createdAt) {
+  const client = getSupabase();
+  if (!client) return;
+  const { error } = await client.from('task_logs').insert({
+    action,
+    detail,
+    created_at: createdAt
+  });
+  if (error) console.error('Không thể lưu task log vào Supabase:', error.message);
+}
+
 function addTaskLog(action, detail) {
-  global.taskLogs.push({
+  const createdAt = new Date().toISOString();
+  const entry = {
     time: new Date().toLocaleString('vi-VN', {
       timeZone: 'Asia/Ho_Chi_Minh',
       hour12: false
     }),
     action,
     detail
-  });
+  };
+  global.taskLogs.push(entry);
   if (global.taskLogs.length > 200) global.taskLogs.shift();
+  void persistTaskLog(action, detail, createdAt);
+}
+
+async function loadSettings() {
+  if (global.settingsLoaded) return;
+  const client = getSupabase();
+  if (!client) return;
+
+  const { data, error } = await client
+    .from('app_settings')
+    .select('key, value')
+    .in('key', ['auto_reply_enabled', 'system_prompt']);
+  if (error) {
+    console.error('Không thể tải cài đặt từ Supabase:', error.message);
+    return;
+  }
+
+  for (const setting of data || []) {
+    if (setting.key === 'auto_reply_enabled' && typeof setting.value?.enabled === 'boolean') {
+      global.autoReplyEnabled = setting.value.enabled;
+    }
+    if (setting.key === 'system_prompt' && typeof setting.value?.prompt === 'string') {
+      global.openaiSystemPrompt = setting.value.prompt;
+    }
+  }
+  global.settingsLoaded = true;
+}
+
+async function saveSetting(key, value) {
+  const client = getSupabase();
+  if (!client) return;
+  const { error } = await client.from('app_settings').upsert({
+    key,
+    value,
+    updated_at: new Date().toISOString()
+  });
+  if (error) throw new Error(`Không thể lưu cài đặt Supabase: ${error.message}`);
+}
+
+async function saveMessage(senderId, direction, text) {
+  const client = getSupabase();
+  if (!client) return;
+  const { error } = await client.from('messenger_messages').insert({
+    sender_id: senderId,
+    direction,
+    text
+  });
+  if (error) throw new Error(`Không thể lưu tin nhắn Supabase: ${error.message}`);
+}
+
+async function getStoredMessages() {
+  const client = getSupabase();
+  if (!client) return global.messages;
+  const { data, error } = await client
+    .from('messenger_messages')
+    .select('sender_id, direction, text, message_time')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw new Error(`Không thể đọc tin nhắn Supabase: ${error.message}`);
+  return (data || []).reverse().map((message) => ({
+    senderId: message.sender_id,
+    direction: message.direction,
+    text: message.text,
+    time: new Date(message.message_time).toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour12: false
+    })
+  }));
+}
+
+async function getStoredTaskLogs() {
+  const client = getSupabase();
+  if (!client) return global.taskLogs;
+  const { data, error } = await client
+    .from('task_logs')
+    .select('action, detail, created_at')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw new Error(`Không thể đọc task log Supabase: ${error.message}`);
+  return (data || []).reverse().map((log) => ({
+    time: new Date(log.created_at).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour12: false
+    }),
+    action: log.action,
+    detail: log.detail
+  }));
 }
 
 let openai;
@@ -105,6 +220,7 @@ async function sendMessengerMessage(recipientId, text) {
     throw new Error(`Facebook API ${response.status}: ${errorBody}`);
   }
   addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
+  await saveMessage(recipientId, 'outbound', text);
 }
 
 async function replyWithOpenAI(recipientId, receivedText) {
@@ -120,6 +236,7 @@ async function replyWithOpenAI(recipientId, receivedText) {
 
 export default async function handler(req, res) {
   const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || process.env.VERIFY_TOKEN || 'my_secure_verify_token';
+  await loadSettings();
 
   // 1. Xử lý yêu cầu xác minh từ Facebook (GET) VÀ trả về danh sách tin nhắn cho Web
   if (req.method === 'GET') {
@@ -133,7 +250,11 @@ export default async function handler(req, res) {
     }
 
     if (action === 'get_task_logs') {
-      return res.status(200).json(global.taskLogs);
+      try {
+        return res.status(200).json(await getStoredTaskLogs());
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
     }
 
     if (action === 'get_system_prompt') {
@@ -165,7 +286,11 @@ export default async function handler(req, res) {
     
     // Web gọi API để lấy danh sách tin nhắn hiển thị lên trang chủ
     if (action === 'get_messages') {
-      return res.status(200).json(global.messages);
+      try {
+        return res.status(200).json(await getStoredMessages());
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
     }
 
     return res.status(400).send('Bad Request');
@@ -177,6 +302,7 @@ export default async function handler(req, res) {
 
     if (action === 'toggle_auto_reply') {
       global.autoReplyEnabled = !global.autoReplyEnabled;
+      await saveSetting('auto_reply_enabled', { enabled: global.autoReplyEnabled });
       addTaskLog('Web', `Đã ${global.autoReplyEnabled ? 'bật' : 'tắt'} tự động trả lời`);
       return res.status(200).json({ enabled: global.autoReplyEnabled });
     }
@@ -187,6 +313,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'System Prompt không được để trống.' });
       }
       global.openaiSystemPrompt = prompt;
+      await saveSetting('system_prompt', { prompt });
       addTaskLog('Web', `Đã cập nhật System Prompt (${prompt.length} ký tự)`);
       return res.status(200).json({ prompt: global.openaiSystemPrompt });
     }
@@ -215,6 +342,11 @@ export default async function handler(req, res) {
             text: receivedText,
             time: currentTime
           });
+          try {
+            await saveMessage(senderPsid, 'inbound', receivedText);
+          } catch (error) {
+            addTaskLog('Supabase', error.message);
+          }
           
           console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
 
