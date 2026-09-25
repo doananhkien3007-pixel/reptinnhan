@@ -12,17 +12,30 @@ async function sendMessengerReply(recipientId, text) {
     return;
   }
 
-  const response = await fetch(
-    `https://graph.facebook.com/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        recipient: { id: recipientId },
-        message: { text }
-      })
-    }
-  );
+  const apiUrl = `https://graph.facebook.com/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+  const sendRequest = (payload) => fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const typingResponse = await sendRequest({
+    recipient: { id: recipientId },
+    sender_action: 'typing_on'
+  });
+
+  if (!typingResponse.ok) {
+    const errorBody = await typingResponse.text();
+    throw new Error(`Facebook API ${typingResponse.status}: ${errorBody}`);
+  }
+
+  // Giữ trạng thái "đang nhập..." trong khoảng 1 giây.
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  const response = await sendRequest({
+    recipient: { id: recipientId },
+    message: { text }
+  });
 
   if (!response.ok) {
     const errorBody = await response.text();
