@@ -4,24 +4,16 @@ import { listProducts } from './services/products.js';
 
 function normalizeProduct(input = {}) {
   return {
-    sku: String(input.sku || '').trim(),
     name: String(input.name || '').trim(),
     price: Number(input.price || 0),
-    sale_price: input.sale_price === '' || input.sale_price == null ? null : Number(input.sale_price),
     material: String(input.material || '').trim(),
-    description: String(input.description || '').trim(),
-    size_guide: String(input.size_guide || '').trim(),
-    status: input.status === 'inactive' ? 'inactive' : 'active'
+    size_guide: String(input.size_guide || '').trim()
   };
 }
 
 function validateProduct(product) {
-  if (!product.sku) throw new Error('SKU không được để trống.');
   if (!product.name) throw new Error('Tên sản phẩm không được để trống.');
   if (!Number.isFinite(product.price) || product.price < 0) throw new Error('Giá gốc không hợp lệ.');
-  if (product.sale_price !== null && (!Number.isFinite(product.sale_price) || product.sale_price < 0)) {
-    throw new Error('Giá sale không hợp lệ.');
-  }
 }
 
 async function ensureImageBucket(supabase) {
@@ -39,14 +31,15 @@ async function saveVariants(supabase, productId, variants = []) {
     .map((variant) => ({
       product_id: productId,
       color: String(variant.color || '').trim(),
-      size: String(variant.size || '').trim(),
-      stock: Math.max(0, Number.parseInt(variant.stock, 10) || 0)
+      size: null,
+      stock: 0
     }))
-    .filter((variant) => variant.color && variant.size);
+    .filter((variant) => variant.color);
+  const uniqueColors = [...new Map(cleanVariants.map((variant) => [variant.color.toLocaleLowerCase('vi-VN'), variant])).values()];
 
   await supabase.from('product_variants').delete().eq('product_id', productId);
-  if (!cleanVariants.length) return;
-  const { error } = await supabase.from('product_variants').insert(cleanVariants);
+  if (!uniqueColors.length) return;
+  const { error } = await supabase.from('product_variants').insert(uniqueColors);
   if (error) throw new Error(`Không thể lưu biến thể: ${error.message}`);
 }
 
@@ -65,7 +58,8 @@ export default async function handler(req, res) {
       let productId = req.body?.id;
 
       if (action === 'create') {
-        const { data, error } = await supabase.from('products').insert(product).select('*').single();
+        const generatedSku = `P-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+        const { data, error } = await supabase.from('products').insert({ ...product, sku: generatedSku, status: 'active' }).select('*').single();
         if (error) throw new Error(`Không thể tạo sản phẩm: ${error.message}`);
         productId = data.id;
       } else {

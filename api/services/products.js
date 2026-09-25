@@ -46,22 +46,13 @@ export async function getProductContext(productId) {
     .order('size');
   if (variantsError) throw new Error(`Không thể lấy product_variants: ${variantsError.message}`);
 
-  const colorMap = new Map();
-  for (const variant of variants || []) {
-    if (!colorMap.has(variant.color)) colorMap.set(variant.color, []);
-    colorMap.get(variant.color).push(`${variant.size} còn ${variant.stock}`);
-  }
-
-  const colors = [...colorMap.entries()].map(([color, sizes]) => `${color}: ${sizes.join(', ')}`);
+  const colors = [...new Set((variants || []).map((variant) => variant.color).filter(Boolean))];
   return [
     'SẢN PHẨM ĐANG TƯ VẤN:',
     `Tên: ${product.name}`,
-    `SKU: ${product.sku}`,
-    `Giá gốc: ${product.price}`,
-    `Giá sale: ${product.sale_price ?? 'Không có'}`,
+    `Giá: ${product.price}`,
     `Chất liệu: ${product.material || 'Chưa cập nhật'}`,
-    `Mô tả: ${product.description || 'Chưa cập nhật'}`,
-    `Màu và tồn kho: ${colors.length ? colors.join(' | ') : 'Chưa cập nhật'}`,
+    `Màu: ${colors.length ? colors.join(', ') : 'Chưa cập nhật'}`,
     `Size guide: ${product.size_guide || 'Chưa cập nhật'}`
   ].join('\n');
 }
@@ -106,16 +97,15 @@ export async function findMentionedProduct(message) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from('products')
-    .select('id, sku, name')
+    .select('id, name')
     .eq('status', DEFAULT_PRODUCT_STATUS)
     .limit(200);
   if (error) throw new Error(`Không thể tìm product: ${error.message}`);
 
   const normalizedMessage = message.toLocaleLowerCase('vi-VN');
   return (data || [])
-    .sort((a, b) => Math.max(b.sku.length, b.name.length) - Math.max(a.sku.length, a.name.length))
-    .find((product) => normalizedMessage.includes(product.sku.toLocaleLowerCase('vi-VN')) ||
-      normalizedMessage.includes(product.name.toLocaleLowerCase('vi-VN'))) || null;
+    .sort((a, b) => b.name.length - a.name.length)
+    .find((product) => normalizedMessage.includes(product.name.toLocaleLowerCase('vi-VN'))) || null;
 }
 
 export async function getRecentConversationMessages(conversationId, limit = 10) {

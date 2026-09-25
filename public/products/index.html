@@ -22,7 +22,9 @@
     button.warning { background: #d97706; }
     .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
     #status { color: #2563eb; font-size: 13px; }
-    .variant-row { display: grid; grid-template-columns: 1fr 1fr 120px auto; gap: 8px; margin-bottom: 8px; align-items: end; }
+    .variant-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 8px; align-items: end; }
+    .color-image-tools { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px; background: #f9fafb; border-radius: 7px; }
+    .color-image-tools input[type="file"] { max-width: 280px; }
     .product { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-top: 10px; }
     .product-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
     .product-head strong { font-size: 17px; }
@@ -35,7 +37,7 @@
     .images img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
     .image-item { position: relative; display: inline-flex; flex-direction: column; gap: 2px; font-size: 10px; color: #6b7280; text-align: center; }
     .image-item.primary img { border: 2px solid #1877f2; }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr auto; } }
   </style>
 </head>
 <body>
@@ -48,30 +50,16 @@
     <form id="product-form" class="card">
       <h2 id="form-title">Thêm sản phẩm</h2>
       <div class="grid">
-        <label>SKU<input id="sku" required></label>
         <label>Tên sản phẩm<input id="name" required></label>
-        <label>Trạng thái<select id="product-status"><option value="active">Còn hàng</option><option value="inactive">Hết hàng</option></select></label>
         <label>Giá gốc<input id="price" type="number" min="0" step="1000" required></label>
-        <label>Giá sale<input id="sale-price" type="number" min="0" step="1000"></label>
         <label>Chất liệu<input id="material"></label>
-        <label class="wide">Mô tả<textarea id="description"></textarea></label>
         <label>Hướng dẫn size<textarea id="size-guide"></textarea></label>
       </div>
 
-      <h2 style="margin-top:20px">Màu và size</h2>
+      <h2 style="margin-top:20px">Màu sản phẩm</h2>
       <div id="variants"></div>
-      <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e5e7eb;">
-        <h2>Hình ảnh sản phẩm</h2>
-        <p class="muted">Lưu sản phẩm trước, chọn màu rồi upload nhiều hình. Chọn “Ảnh chính” để đánh dấu ảnh đại diện; các ảnh còn lại là ảnh phụ.</p>
-        <div class="grid">
-          <label>Màu của ảnh<input id="image-color" placeholder="Ví dụ: Đen"></label>
-          <label>Hình ảnh<input id="image-files" type="file" accept="image/*" multiple></label>
-          <label style="flex-direction:row; align-items:center; gap:8px; margin-top:24px;"><input id="image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
-        </div>
-        <div class="actions"><button type="button" id="upload-images" class="secondary">Upload hình</button><span id="upload-status" class="muted"></span></div>
-      </div>
       <div class="actions">
-        <button type="button" id="add-variant" class="secondary">+ Thêm màu / size</button>
+        <button type="button" id="add-variant" class="secondary">+ Thêm màu</button>
         <button type="submit">Lưu sản phẩm</button>
         <button type="button" id="cancel-edit" class="secondary" hidden>Huỷ sửa</button>
       </div>
@@ -98,27 +86,28 @@
       const row = document.createElement('div');
       row.className = 'variant-row';
       row.innerHTML = `<label>Màu<input class="variant-color" value="${escapeHtml(variant.color)}" required></label>
-        <label>Size<input class="variant-size" value="${escapeHtml(variant.size)}" required></label>
-        <label>Tồn kho<input class="variant-stock" type="number" min="0" value="${Number(variant.stock || 0)}" required></label>
-        <button type="button" class="danger remove-variant">Xoá</button>`;
+        <button type="button" class="danger remove-variant">Xoá</button>
+        <div class="color-image-tools">
+          <input class="color-image-files" type="file" accept="image/*" multiple>
+          <label style="flex-direction:row; align-items:center; gap:5px; font-weight:normal;"><input class="color-image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
+          <button type="button" class="secondary upload-color-images">Upload ảnh màu này</button>
+          <span class="muted color-upload-status">Lưu sản phẩm trước rồi upload ảnh.</span>
+        </div>`;
       row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
+      row.querySelector('.upload-color-images').addEventListener('click', () => uploadImagesForColor(row));
       $('variants').appendChild(row);
     }
 
     function readVariants() {
       return [...document.querySelectorAll('.variant-row')].map((row) => ({
-        color: row.querySelector('.variant-color').value.trim(),
-        size: row.querySelector('.variant-size').value.trim(),
-        stock: Number(row.querySelector('.variant-stock').value || 0)
-      })).filter((variant) => variant.color && variant.size);
+        color: row.querySelector('.variant-color').value.trim()
+      })).filter((variant) => variant.color);
     }
 
     function readProductForm() {
       return {
-        sku: $('sku').value.trim(), name: $('name').value.trim(), status: $('product-status').value,
-        price: Number($('price').value || 0), sale_price: $('sale-price').value === '' ? null : Number($('sale-price').value),
-        material: $('material').value.trim(), description: $('description').value.trim(),
-        size_guide: $('size-guide').value.trim()
+        name: $('name').value.trim(), price: Number($('price').value || 0),
+        material: $('material').value.trim(), size_guide: $('size-guide').value.trim()
       };
     }
 
@@ -134,9 +123,7 @@
     function editProduct(product) {
       editingId = product.id;
       $('form-title').textContent = `Sửa sản phẩm: ${product.name}`;
-      for (const [id, value] of Object.entries({ sku: product.sku, name: product.name, price: product.price, material: product.material, description: product.description, 'size-guide': product.size_guide })) $(id).value = value || '';
-      $('sale-price').value = product.sale_price ?? '';
-      $('product-status').value = product.status;
+      for (const [id, value] of Object.entries({ name: product.name, price: product.price, material: product.material, 'size-guide': product.size_guide })) $(id).value = value || '';
       $('variants').innerHTML = '';
       (product.variants || []).forEach(addVariantRow);
       if (!product.variants?.length) addVariantRow();
@@ -146,12 +133,11 @@
 
     function renderProducts() {
       $('products').innerHTML = products.length ? products.map((product) => {
-        const grouped = {};
-        (product.variants || []).forEach((variant) => { (grouped[variant.color] ||= []).push(`${variant.size}: ${variant.stock}`); });
-        return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">SKU: ${escapeHtml(product.sku)} · Giá: ${Number(product.price).toLocaleString('vi-VN')}đ${product.sale_price != null ? ` · Sale: ${Number(product.sale_price).toLocaleString('vi-VN')}đ` : ''}</div></div><span class="badge ${product.status === 'active' ? '' : 'off'}">${product.status === 'active' ? 'Còn hàng' : 'Hết hàng'}</span></div>
-          <div class="variants">${Object.entries(grouped).map(([color, values]) => `<div class="variant-color"><b>${escapeHtml(color)}</b>: ${escapeHtml(values.join(' · '))}</div>`).join('') || '<span class="muted">Chưa có màu/size</span>'}</div>
+        const colors = [...new Set((product.variants || []).map((variant) => variant.color).filter(Boolean))];
+        return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">Giá: ${Number(product.price).toLocaleString('vi-VN')}đ · Chất liệu: ${escapeHtml(product.material || 'Chưa cập nhật')}</div></div></div>
+          <div class="variants">${colors.map((color) => `<div class="variant-color"><b>${escapeHtml(color)}</b></div>`).join('') || '<span class="muted">Chưa có màu</span>'}</div>
           <div class="images">${(product.images || []).map((image) => `<div class="image-item ${image.is_primary ? 'primary' : ''}"><img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}"><span>${image.is_primary ? 'Ảnh chính' : 'Ảnh phụ'}</span></div>`).join('')}</div>
-          <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="warning" data-toggle="${product.id}" data-status="${product.status}">${product.status === 'active' ? 'Đánh dấu hết hàng' : 'Đánh dấu còn hàng'}</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
+          <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
       }).join('') : '<p class="muted">Chưa có sản phẩm.</p>';
       document.querySelectorAll('[data-edit]').forEach((button) => button.addEventListener('click', () => editProduct(products.find((p) => p.id === Number(button.dataset.edit)))));
       document.querySelectorAll('[data-toggle]').forEach((button) => button.addEventListener('click', () => toggleProduct(Number(button.dataset.toggle), button.dataset.status)));
@@ -190,29 +176,30 @@
     }
 
     function readFileAsDataUrl(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
-    async function uploadImages() {
+    async function uploadImagesForColor(row) {
       const productId = editingId;
-      const color = $('image-color').value.trim();
-      const files = [...$('image-files').files];
-      if (!productId || !color || !files.length) { $('upload-status').textContent = 'Hãy lưu sản phẩm, chọn màu và hình ảnh.'; return; }
+      const color = row.querySelector('.variant-color').value.trim();
+      const files = [...row.querySelector('.color-image-files').files];
+      const status = row.querySelector('.color-upload-status');
+      const isPrimary = row.querySelector('.color-image-primary').checked;
+      if (!productId || !color || !files.length) { status.textContent = 'Hãy lưu sản phẩm, nhập màu và chọn hình ảnh.'; return; }
       try {
         for (const [index, file] of files.entries()) {
-          $('upload-status').textContent = `Đang upload ${index + 1}/${files.length}...`;
-          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), is_primary: index === 0 && $('image-primary').checked, sort_order: index }) });
+          status.textContent = `Đang upload ${index + 1}/${files.length}...`;
+          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), is_primary: index === 0 && isPrimary, sort_order: index }) });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Upload thất bại.');
         }
-        $('upload-status').textContent = 'Upload thành công.';
-        $('image-files').value = '';
-        $('image-primary').checked = false;
+        status.textContent = 'Upload thành công.';
+        row.querySelector('.color-image-files').value = '';
+        row.querySelector('.color-image-primary').checked = false;
         await loadProducts();
-      } catch (error) { $('upload-status').textContent = error.message; }
+      } catch (error) { status.textContent = error.message; }
     }
 
     $('product-form').addEventListener('submit', saveProduct);
     $('add-variant').addEventListener('click', () => addVariantRow());
     $('cancel-edit').addEventListener('click', clearForm);
-    $('upload-images').addEventListener('click', uploadImages);
     clearForm();
     loadProducts().catch((error) => setStatus(error.message, true));
   </script>
