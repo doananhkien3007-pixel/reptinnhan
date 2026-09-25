@@ -1,4 +1,5 @@
 // api/webhook.js
+import OpenAI from 'openai';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {
@@ -6,6 +7,30 @@ if (!global.messages) {
 }
 if (typeof global.autoReplyEnabled !== 'boolean') {
   global.autoReplyEnabled = true;
+}
+
+let openai;
+
+async function generateOpenAIReply(receivedText) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('Chưa cấu hình OPENAI_API_KEY.');
+  }
+  if (!openai) {
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+
+  const response = await openai.responses.create({
+    model: process.env.OPENAI_MODEL || 'gpt-6-luna',
+    instructions: process.env.OPENAI_SYSTEM_PROMPT ||
+      'Bạn là trợ lý chăm sóc khách hàng của Emi House - Váy Thiết Kế. Trả lời bằng tiếng Việt, lịch sự, ngắn gọn và tự nhiên.',
+    input: receivedText
+  });
+
+  const reply = response.output_text?.trim();
+  if (!reply) {
+    throw new Error('OpenAI không trả về nội dung trả lời.');
+  }
+  return reply;
 }
 
 async function sendMessengerReply(recipientId, text) {
@@ -60,6 +85,16 @@ export default async function handler(req, res) {
 
     if (action === 'auto_reply_status') {
       return res.status(200).json({ enabled: global.autoReplyEnabled });
+    }
+
+    if (action === 'test_openai') {
+      try {
+        const reply = await generateOpenAIReply('Trả lời đúng một từ: OK');
+        return res.status(200).json({ ok: true, reply });
+      } catch (error) {
+        console.error('Kiểm tra OpenAI thất bại:', error);
+        return res.status(500).json({ ok: false, error: error.message });
+      }
     }
 
     // Facebook xác minh Webhook
@@ -117,12 +152,11 @@ export default async function handler(req, res) {
 
           // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
           if (global.autoReplyEnabled) {
-            try {
-              await sendMessengerReply(senderPsid, 'Hello');
-              console.log(`Đã trả lời khách hàng ${senderPsid}`);
-            } catch (error) {
-              console.error('Không thể gửi tin nhắn trả lời:', error);
-            }
+            // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
+            generateOpenAIReply(receivedText)
+              .then((reply) => sendMessengerReply(senderPsid, reply))
+              .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
+              .catch((error) => console.error('Không thể tạo/gửi tin nhắn trả lời:', error));
           } else {
             console.log('Tự động trả lời đang tắt.');
           }

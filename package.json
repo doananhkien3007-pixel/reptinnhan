@@ -17,5 +17,8 @@
   "bugs": {
     "url": "https://github.com/doananhkien3007-pixel/reptinnhan/issues"
   },
-  "homepage": "https://github.com/doananhkien3007-pixel/reptinnhan#readme"
+  "homepage": "https://github.com/doananhkien3007-pixel/reptinnhan#readme",
+  "dependencies": {
+    "openai": "^7.23.0"
+  }
 }

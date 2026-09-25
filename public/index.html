@@ -16,6 +16,9 @@
     .reply-control { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; padding: 10px 12px; background: #f7f8fa; border-radius: 8px; }
     #reply-toggle { border: 0; border-radius: 6px; padding: 8px 14px; color: white; cursor: pointer; background: #1877f2; }
     #reply-toggle.off { background: #65676b; }
+    .openai-control { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+    #test-openai { padding: 7px 12px; border: 1px solid #1877f2; border-radius: 6px; color: #1877f2; background: white; cursor: pointer; }
+    #openai-status { font-size: 12px; color: #65676b; }
   </style>
 </head>
 <body>
@@ -24,6 +27,10 @@
     <div class="reply-control">
       <span id="reply-status">Đang kiểm tra trạng thái...</span>
       <button id="reply-toggle" type="button">...</button>
+    </div>
+    <div class="openai-control">
+      <button id="test-openai" type="button">Test kết nối OpenAI</button>
+      <span id="openai-status"></span>
     </div>
     <div id="chat-box">Đang tải tin nhắn...</div>
   </div>
@@ -82,14 +89,34 @@
       updateReplyControl();
     });
 
+    document.getElementById('test-openai').addEventListener('click', async () => {
+      const status = document.getElementById('openai-status');
+      const button = document.getElementById('test-openai');
+      button.disabled = true;
+      status.textContent = 'Đang kiểm tra...';
+      try {
+        const res = await fetch('/api/webhook?action=test_openai');
+        const data = await res.json();
+        status.textContent = res.ok
+          ? `Kết nối thành công (${data.reply})`
+          : `Lỗi: ${data.error}`;
+        status.style.color = res.ok ? '#31a24c' : '#d93025';
+      } catch (error) {
+        status.textContent = 'Không gọi được webhook.';
+        status.style.color = '#d93025';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     // Gọi lần đầu tiên
     fetchMessages();
     loadReplyStatus().catch(() => {
       document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
     });
     
-    // Tự động làm mới mỗi 10 giây (giảm tải Log Vercel)
-    setInterval(fetchMessages, 10000);
+    // Làm mới nhanh để tin nhắn khách hiện gần như ngay lập tức.
+    setInterval(fetchMessages, 1000);
   </script>
 </body>
 </html>
