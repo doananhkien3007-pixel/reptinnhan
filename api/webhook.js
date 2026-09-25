@@ -49,7 +49,10 @@ export default async function handler(req, res) {
           const receivedText = webhookEvent.message.text;
           
           // LƯU TIN NHẮN VÀO BỘ NHỚ (Để hiển thị lên trang chủ)
-          const currentTime = new Date().toLocaleTimeString('vi-VN');
+          const currentTime = new Date().toLocaleTimeString('vi-VN', {
+            timeZone: 'Asia/Ho_Chi_Minh',
+            hour12: false
+          });
           global.messages.push({
             senderId: senderPsid,
             text: receivedText,
