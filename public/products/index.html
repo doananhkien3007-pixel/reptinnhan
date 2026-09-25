@@ -155,10 +155,17 @@
     async function saveProduct(event) {
       event.preventDefault();
       try {
+        const colorRows = [...document.querySelectorAll('.variant-row')];
         const response = await fetch(`/api/products?action=${editingId ? 'update' : 'create'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, product: readProductForm(), variants: readVariants() }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Không thể lưu sản phẩm.');
-        setStatus('Đã lưu sản phẩm.');
+        const productId = Number(data.id);
+        editingId = productId;
+        const rowsWithImages = colorRows.filter((row) => row.querySelector('.color-image-files').files.length);
+        for (const row of rowsWithImages) {
+          if (!await uploadImagesForColor(row, productId, false)) throw new Error('Lưu sản phẩm được nhưng upload hình thất bại.');
+        }
+        setStatus(rowsWithImages.length ? 'Đã lưu sản phẩm và hình ảnh.' : 'Đã lưu sản phẩm.');
         clearForm();
         await loadProducts();
       } catch (error) { setStatus(error.message, true); }
@@ -176,8 +183,7 @@
     }
 
     function readFileAsDataUrl(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
-    async function uploadImagesForColor(row) {
-      const productId = editingId;
+    async function uploadImagesForColor(row, productId = editingId, refresh = true) {
       const color = row.querySelector('.variant-color').value.trim();
       const files = [...row.querySelector('.color-image-files').files];
       const status = row.querySelector('.color-upload-status');
@@ -193,8 +199,9 @@
         status.textContent = 'Upload thành công.';
         row.querySelector('.color-image-files').value = '';
         row.querySelector('.color-image-primary').checked = false;
-        await loadProducts();
-      } catch (error) { status.textContent = error.message; }
+        if (refresh) await loadProducts();
+        return true;
+      } catch (error) { status.textContent = error.message; return false; }
     }
 
     $('product-form').addEventListener('submit', saveProduct);

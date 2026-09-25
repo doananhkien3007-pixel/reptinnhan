@@ -5,3 +5,5 @@ dist/
 .next/
 .vercel/
 .DS_Store
+.vercel
+.env*
