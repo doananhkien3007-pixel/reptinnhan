@@ -41,7 +41,7 @@
 
     async function fetchMessages() {
         try {
-            const res = await fetch('/api/messages?t=' + new Date().getTime());
+            const res = await fetch('/api/messages');
             const messages = await res.json();
             renderMessages(messages);
         } catch (err) {
