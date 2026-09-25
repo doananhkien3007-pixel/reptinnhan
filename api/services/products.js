@@ -37,8 +37,17 @@ export async function getProductContext(productId) {
     `Giá: ${product.price}`,
     `Chất liệu: ${product.material || 'Chưa cập nhật'}`,
     `Màu: ${colors.length ? colors.join(', ') : 'Chưa cập nhật'}`,
-    `Size guide: ${product.size_guide || 'Chưa cập nhật'}`
+    `Size guide: ${product.size_guide || 'Chưa cập nhật'}`,
+    `Hình ảnh: ${Array.isArray(product.images) && product.images.length ? 'Có thể gửi cho khách' : 'Chưa có hình ảnh'}`
   ].join('\n');
+}
+
+export async function getProductImages(productId) {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('products').select('images').eq('id', productId).limit(1);
+  if (error) throw new Error(`Không thể lấy hình ảnh sản phẩm: ${error.message}`);
+  const images = data?.[0]?.images;
+  return Array.isArray(images) ? images : [];
 }
 
 export async function getOrCreateConversation(externalUserId) {

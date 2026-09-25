@@ -5,6 +5,7 @@ import {
   findMentionedProduct,
   getOrCreateConversation,
   getProductContext,
+  getProductImages,
   getRecentConversationMessages,
   saveConversationMessage,
   updateConversationProduct
@@ -183,6 +184,7 @@ async function generateOpenAIReply(receivedText, { productContext, history = [] 
     'Chỉ được sử dụng dữ liệu trong SẢN PHẨM ĐANG TƯ VẤN và LỊCH SỬ HỘI THOẠI.',
     'Không tự bịa giá, màu, size hoặc tồn kho.',
     'Nếu dữ liệu thiếu, hãy hỏi lại khách; nếu chưa xác định sản phẩm, trả lời đúng ý: "Dạ chị đang quan tâm mẫu nào ạ? Chị gửi hình hoặc tên mẫu giúp em nhé 🌷".',
+    'Chỉ nói có thể gửi hình khi dữ liệu Hình ảnh ghi rõ là có thể gửi cho khách.',
     'Trả lời bằng tiếng Việt tự nhiên, ngắn gọn 1-3 câu và không nói mình là AI.'
   ].join('\n');
   const historyText = history.length
@@ -266,10 +268,29 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
   }
 }
 
+async function sendMessengerImage(recipientId, imageUrl, conversationId = null) {
+  const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
+  const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
+  if (!pageAccessToken || !recipientId || !imageUrl) return;
+  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipient: { id: recipientId }, message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } } })
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Facebook API gửi ảnh ${response.status}: ${errorBody}`);
+  }
+  addTaskLog('Messenger', `Đã gửi ảnh sản phẩm cho khách ${recipientId}`);
+  if (conversationId) await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: '[Hình ảnh sản phẩm]' });
+}
+
 async function replyWithOpenAI(recipientId, receivedText, conversationId = null) {
   await sendMessengerAction(recipientId, 'typing_on');
   let productContext = null;
   let history = [];
+  let productImages = [];
 
   if (conversationId) {
     const conversation = await getOrCreateConversation(recipientId);
@@ -282,7 +303,10 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
         addTaskLog('Product', `Đã chuyển sản phẩm tư vấn sang ${mentionedProduct.sku} - ${mentionedProduct.name}`);
       }
     }
-    if (productId) productContext = await getProductContext(productId);
+    if (productId) {
+      productContext = await getProductContext(productId);
+      productImages = await getProductImages(productId);
+    }
     history = await getRecentConversationMessages(conversation.id, 10);
   }
 
@@ -293,6 +317,13 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 
   await sendMessengerMessage(recipientId, reply, conversationId);
+
+  const asksForImage = /(xem|gửi|cho|coi).{0,20}(hình|ảnh)|\b(hình|ảnh)\b/i.test(receivedText);
+  if (asksForImage && productImages.length) {
+    for (const image of productImages.filter((item) => item.image_url)) {
+      await sendMessengerImage(recipientId, image.image_url, conversationId);
+    }
+  }
 }
 
 export default async function handler(req, res) {
