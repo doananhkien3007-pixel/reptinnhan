@@ -33,6 +33,8 @@
     .variant-color { margin: 4px 0; }
     .images { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .images img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
+    .image-item { position: relative; display: inline-flex; flex-direction: column; gap: 2px; font-size: 10px; color: #6b7280; text-align: center; }
+    .image-item.primary img { border: 2px solid #1877f2; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr 1fr; } }
   </style>
 </head>
@@ -54,8 +56,6 @@
         <label>Chất liệu<input id="material"></label>
         <label class="wide">Mô tả<textarea id="description"></textarea></label>
         <label>Hướng dẫn size<textarea id="size-guide"></textarea></label>
-        <label>Chính sách giao hàng<textarea id="shipping-policy"></textarea></label>
-        <label>Chính sách đổi trả<textarea id="return-policy"></textarea></label>
       </div>
 
       <h2 style="margin-top:20px">Màu và tồn kho theo size</h2>
@@ -69,11 +69,12 @@
 
     <div class="card">
       <h2>Upload hình sản phẩm</h2>
-      <p class="muted">Lưu sản phẩm trước, chọn màu rồi upload nhiều hình lên Supabase Storage.</p>
+      <p class="muted">Lưu sản phẩm trước, chọn màu rồi upload nhiều hình. Chọn “Ảnh chính” để đánh dấu ảnh đại diện; các ảnh còn lại là ảnh phụ.</p>
       <div class="grid">
         <label>Sản phẩm<select id="image-product"></select></label>
         <label>Màu<input id="image-color" placeholder="Ví dụ: Đen"></label>
         <label>Hình ảnh<input id="image-files" type="file" accept="image/*" multiple></label>
+        <label style="flex-direction:row; align-items:center; gap:8px; margin-top:24px;"><input id="image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
       </div>
       <div class="actions"><button type="button" id="upload-images">Upload hình</button><span id="upload-status" class="muted"></span></div>
     </div>
@@ -119,8 +120,7 @@
         sku: $('sku').value.trim(), name: $('name').value.trim(), status: $('product-status').value,
         price: Number($('price').value || 0), sale_price: $('sale-price').value === '' ? null : Number($('sale-price').value),
         material: $('material').value.trim(), description: $('description').value.trim(),
-        size_guide: $('size-guide').value.trim(), shipping_policy: $('shipping-policy').value.trim(),
-        return_policy: $('return-policy').value.trim()
+        size_guide: $('size-guide').value.trim()
       };
     }
 
@@ -136,7 +136,7 @@
     function editProduct(product) {
       editingId = product.id;
       $('form-title').textContent = `Sửa sản phẩm: ${product.name}`;
-      for (const [id, value] of Object.entries({ sku: product.sku, name: product.name, price: product.price, material: product.material, description: product.description, 'size-guide': product.size_guide, 'shipping-policy': product.shipping_policy, 'return-policy': product.return_policy })) $(id).value = value || '';
+      for (const [id, value] of Object.entries({ sku: product.sku, name: product.name, price: product.price, material: product.material, description: product.description, 'size-guide': product.size_guide })) $(id).value = value || '';
       $('sale-price').value = product.sale_price ?? '';
       $('product-status').value = product.status;
       $('variants').innerHTML = '';
@@ -154,7 +154,7 @@
         (product.variants || []).forEach((variant) => { (grouped[variant.color] ||= []).push(`${variant.size}: ${variant.stock}`); });
         return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">SKU: ${escapeHtml(product.sku)} · Giá: ${Number(product.price).toLocaleString('vi-VN')}đ${product.sale_price != null ? ` · Sale: ${Number(product.sale_price).toLocaleString('vi-VN')}đ` : ''}</div></div><span class="badge ${product.status === 'active' ? '' : 'off'}">${product.status === 'active' ? 'Đang bật' : 'Đang tắt'}</span></div>
           <div class="variants">${Object.entries(grouped).map(([color, values]) => `<div class="variant-color"><b>${escapeHtml(color)}</b>: ${escapeHtml(values.join(' · '))}</div>`).join('') || '<span class="muted">Chưa có màu/size</span>'}</div>
-          <div class="images">${(product.images || []).map((image) => `<img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}">`).join('')}</div>
+          <div class="images">${(product.images || []).map((image) => `<div class="image-item ${image.is_primary ? 'primary' : ''}"><img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}"><span>${image.is_primary ? 'Ảnh chính' : 'Ảnh phụ'}</span></div>`).join('')}</div>
           <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="warning" data-toggle="${product.id}" data-status="${product.status}">${product.status === 'active' ? 'Tắt' : 'Bật'}</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
       }).join('') : '<p class="muted">Chưa có sản phẩm.</p>';
       document.querySelectorAll('[data-edit]').forEach((button) => button.addEventListener('click', () => editProduct(products.find((p) => p.id === Number(button.dataset.edit)))));
@@ -202,12 +202,13 @@
       try {
         for (const [index, file] of files.entries()) {
           $('upload-status').textContent = `Đang upload ${index + 1}/${files.length}...`;
-          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), sort_order: index }) });
+          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), is_primary: index === 0 && $('image-primary').checked, sort_order: index }) });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Upload thất bại.');
         }
         $('upload-status').textContent = 'Upload thành công.';
         $('image-files').value = '';
+        $('image-primary').checked = false;
         await loadProducts();
       } catch (error) { $('upload-status').textContent = error.message; }
     }

@@ -62,9 +62,7 @@ export async function getProductContext(productId) {
     `Chất liệu: ${product.material || 'Chưa cập nhật'}`,
     `Mô tả: ${product.description || 'Chưa cập nhật'}`,
     `Màu và tồn kho: ${colors.length ? colors.join(' | ') : 'Chưa cập nhật'}`,
-    `Size guide: ${product.size_guide || 'Chưa cập nhật'}`,
-    `Shipping policy: ${product.shipping_policy || 'Chưa cập nhật'}`,
-    `Return policy: ${product.return_policy || 'Chưa cập nhật'}`
+    `Size guide: ${product.size_guide || 'Chưa cập nhật'}`
   ].join('\n');
 }
 

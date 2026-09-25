@@ -11,8 +11,6 @@ function normalizeProduct(input = {}) {
     material: String(input.material || '').trim(),
     description: String(input.description || '').trim(),
     size_guide: String(input.size_guide || '').trim(),
-    shipping_policy: String(input.shipping_policy || '').trim(),
-    return_policy: String(input.return_policy || '').trim(),
     status: input.status === 'inactive' ? 'inactive' : 'active'
   };
 }
@@ -120,6 +118,15 @@ export default async function handler(req, res) {
       if (uploadError) throw new Error(`Không thể upload ảnh: ${uploadError.message}`);
 
       const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(path);
+      const isPrimary = Boolean(req.body?.is_primary);
+      if (isPrimary) {
+        const { error: clearPrimaryError } = await supabase
+          .from('product_images')
+          .update({ is_primary: false })
+          .eq('product_id', productId)
+          .eq('color', String(req.body?.color || '').trim());
+        if (clearPrimaryError) throw new Error(`Không thể cập nhật ảnh chính cũ: ${clearPrimaryError.message}`);
+      }
       const { data, error } = await supabase.from('product_images').insert({
         product_id: productId,
         color: String(req.body?.color || '').trim(),
