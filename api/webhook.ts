@@ -55,10 +55,8 @@ async function callSendAPI(senderId: string, messageText: string) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const path = req.url?.split('?')[0];
-
   // API lấy danh sách tin nhắn để hiển thị lên Web
-  if (path === '/api/messages') {
+  if (req.query.action === 'get_messages') {
     if (req.method === 'GET') {
       return res.status(200).json((global as any).messagesDB);
     } else if (req.method === 'DELETE') {

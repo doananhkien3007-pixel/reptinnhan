@@ -41,7 +41,7 @@
 
     async function fetchMessages() {
         try {
-            const res = await fetch('/api/messages');
+            const res = await fetch('/api/webhook?action=get_messages');
             const messages = await res.json();
             renderMessages(messages);
         } catch (err) {
@@ -70,7 +70,7 @@
 
     async function clearMessages() {
         if (confirm('Bạn có chắc muốn xoá hết log tin nhắn không?')) {
-            await fetch('/api/messages', { method: 'DELETE' });
+            await fetch('/api/webhook?action=get_messages', { method: 'DELETE' });
             fetchMessages();
         }
     }
