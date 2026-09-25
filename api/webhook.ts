@@ -62,6 +62,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // API lấy danh sách tin nhắn để hiển thị lên Web
   if (path === '/api/messages') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     if (req.method === 'GET') {
       return res.status(200).json((global as any).messagesDB);
     } else if (req.method === 'DELETE') {
