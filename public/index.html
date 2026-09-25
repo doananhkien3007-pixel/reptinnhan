@@ -16,47 +16,55 @@
         .time { font-size: 11px; opacity: 0.7; margin-bottom: 4px; display: block; }
         .sender-id { font-size: 10px; opacity: 0.5; margin-top: 5px; display: block; }
         .empty { text-align: center; color: #65676b; margin-top: 50px; font-size: 16px; }
-        .loading { text-align: center; padding: 10px; font-size: 14px; color: #65676b; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <div class="header">
-        Tin nhắn từ Webhook
+        Tin nhắn Webhook (Lưu Cache Trình Duyệt)
         <button class="btn-clear" onclick="clearMessages()">Xoá hết</button>
     </div>
-    <div class="chat-box" id="chat-box">
-        <div class="loading">Đang tải tin nhắn...</div>
-    </div>
+    <div class="chat-box" id="chat-box"></div>
 </div>
 
 <script>
     const chatBox = document.getElementById('chat-box');
+    
+    // Tải danh sách từ localStorage của trình duyệt
+    let localMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]');
 
     function formatTime(isoString) {
-        const d = new Date(isoString);
-        return d.toLocaleTimeString('vi-VN');
+        return new Date(isoString).toLocaleTimeString('vi-VN');
     }
 
     async function fetchMessages() {
         try {
+            // Lấy tin nhắn mới từ API (chỉ những tin nhắn vừa đến)
             const res = await fetch('/api/webhook?action=get_messages');
-            const messages = await res.json();
-            renderMessages(messages);
+            const newMessages = await res.json();
+            
+            if (newMessages && newMessages.length > 0) {
+                // Thêm tin nhắn mới vào danh sách cũ
+                localMessages = [...localMessages, ...newMessages];
+                // Lưu ngược lại vào trình duyệt
+                localStorage.setItem('chat_messages', JSON.stringify(localMessages));
+            }
+            
+            renderMessages();
         } catch (err) {
             console.error('Lỗi khi tải tin nhắn:', err);
         }
     }
 
-    function renderMessages(messages) {
-        if (!messages || messages.length === 0) {
-            chatBox.innerHTML = '<div class="empty">Chưa có tin nhắn nào. Thử nhắn tin vào Fanpage nhé! (Lưu ý: Dữ liệu test lưu trên RAM sẽ mất khi server ngủ)</div>';
+    function renderMessages() {
+        if (localMessages.length === 0) {
+            chatBox.innerHTML = '<div class="empty">Chưa có tin nhắn nào. Dữ liệu đang được lưu trực tiếp trên trình duyệt của bạn!</div>';
             return;
         }
 
         let html = '';
-        messages.forEach(msg => {
+        localMessages.forEach(msg => {
             html += `
                 <div class="message ${msg.type}">
                     <span class="time">${formatTime(msg.time)} - ${msg.type === 'user' ? 'Khách' : 'Bot'}</span>
@@ -66,19 +74,23 @@
             `;
         });
         chatBox.innerHTML = html;
+        chatBox.scrollTop = chatBox.scrollHeight;
     }
 
     async function clearMessages() {
-        if (confirm('Bạn có chắc muốn xoá hết log tin nhắn không?')) {
+        if (confirm('Bạn có chắc muốn xoá hết lịch sử tin nhắn trên trình duyệt?')) {
+            localMessages = [];
+            localStorage.removeItem('chat_messages');
             await fetch('/api/webhook?action=get_messages', { method: 'DELETE' });
-            fetchMessages();
+            renderMessages();
         }
     }
 
-    // Lấy dữ liệu ngay khi tải trang
-    fetchMessages();
-    // Tự động làm mới mỗi 3 giây
+    // Hiển thị ngay những gì đang có trong trình duyệt
+    renderMessages();
+    // Gọi API quét tin nhắn mới mỗi 3 giây
     setInterval(fetchMessages, 3000);
+    fetchMessages();
 </script>
 
 </body>
