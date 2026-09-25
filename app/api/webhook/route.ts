@@ -7,7 +7,7 @@ export async function GET(req: Request) {
     const token = searchParams.get('hub.verify_token');
     const challenge = searchParams.get('hub.challenge');
 
-    const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN;
+    const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || 'anhkien123';
 
     if (mode && token) {
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
