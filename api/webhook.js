@@ -11,6 +11,10 @@ if (typeof global.autoReplyEnabled !== 'boolean') {
 if (!global.taskLogs) {
   global.taskLogs = [];
 }
+if (typeof global.openaiSystemPrompt !== 'string') {
+  global.openaiSystemPrompt = process.env.OPENAI_SYSTEM_PROMPT ||
+    'Bạn là trợ lý chăm sóc khách hàng của Emi House - Váy Thiết Kế. Trả lời bằng tiếng Việt, lịch sự, ngắn gọn và tự nhiên.';
+}
 
 function addTaskLog(action, detail) {
   global.taskLogs.push({
@@ -38,8 +42,7 @@ async function generateOpenAIReply(receivedText) {
 
   const response = await openai.responses.create({
     model: process.env.OPENAI_MODEL || 'gpt-6-luna',
-    instructions: process.env.OPENAI_SYSTEM_PROMPT ||
-      'Bạn là trợ lý chăm sóc khách hàng của Emi House - Váy Thiết Kế. Trả lời bằng tiếng Việt, lịch sự, ngắn gọn và tự nhiên.',
+    instructions: global.openaiSystemPrompt,
     input: receivedText
   });
 
@@ -112,6 +115,10 @@ export default async function handler(req, res) {
       return res.status(200).json(global.taskLogs);
     }
 
+    if (action === 'get_system_prompt') {
+      return res.status(200).json({ prompt: global.openaiSystemPrompt });
+    }
+
     if (action === 'test_openai') {
       addTaskLog('Web', 'Bắt đầu test kết nối OpenAI');
       try {
@@ -151,6 +158,16 @@ export default async function handler(req, res) {
       global.autoReplyEnabled = !global.autoReplyEnabled;
       addTaskLog('Web', `Đã ${global.autoReplyEnabled ? 'bật' : 'tắt'} tự động trả lời`);
       return res.status(200).json({ enabled: global.autoReplyEnabled });
+    }
+
+    if (action === 'set_system_prompt') {
+      const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+      if (!prompt) {
+        return res.status(400).json({ error: 'System Prompt không được để trống.' });
+      }
+      global.openaiSystemPrompt = prompt;
+      addTaskLog('Web', `Đã cập nhật System Prompt (${prompt.length} ký tự)`);
+      return res.status(200).json({ prompt: global.openaiSystemPrompt });
     }
 
     const body = req.body;

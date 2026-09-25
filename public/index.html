@@ -23,6 +23,10 @@
     .task-log-header { display: flex; align-items: center; justify-content: space-between; }
     .task-log-header button { padding: 6px 10px; border: 1px solid #ccd0d5; border-radius: 6px; background: white; cursor: pointer; }
     #task-log { max-height: 180px; overflow-y: auto; padding: 10px; background: #1f2329; color: #d1d5db; border-radius: 6px; font: 12px/1.5 monospace; white-space: pre-wrap; }
+    .prompt-settings { margin: 15px 0; }
+    #system-prompt { width: 100%; min-height: 100px; box-sizing: border-box; padding: 9px; border: 1px solid #ccd0d5; border-radius: 6px; font: 13px/1.4 Arial, sans-serif; resize: vertical; }
+    #save-prompt { margin-top: 7px; padding: 8px 12px; border: 0; border-radius: 6px; color: white; background: #1877f2; cursor: pointer; }
+    #prompt-status { margin-left: 8px; font-size: 12px; color: #65676b; }
   </style>
 </head>
 <body>
@@ -35,6 +39,12 @@
     <div class="openai-control">
       <button id="test-openai" type="button">Test kết nối OpenAI</button>
       <span id="openai-status"></span>
+    </div>
+    <div class="prompt-settings">
+      <strong>System Prompt</strong>
+      <textarea id="system-prompt" placeholder="Nhập hướng dẫn cho trợ lý OpenAI..."></textarea>
+      <button id="save-prompt" type="button">Lưu System Prompt</button>
+      <span id="prompt-status"></span>
     </div>
     <div class="task-log">
       <div class="task-log-header">
@@ -130,6 +140,35 @@
       logBox.scrollTop = logBox.scrollHeight;
     }
 
+    async function loadSystemPrompt() {
+      const res = await fetch('/api/webhook?action=get_system_prompt');
+      const data = await res.json();
+      document.getElementById('system-prompt').value = data.prompt || '';
+    }
+
+    document.getElementById('save-prompt').addEventListener('click', async () => {
+      const prompt = document.getElementById('system-prompt').value;
+      const status = document.getElementById('prompt-status');
+      const button = document.getElementById('save-prompt');
+      button.disabled = true;
+      status.textContent = 'Đang lưu...';
+      try {
+        const res = await fetch('/api/webhook?action=set_system_prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await res.json();
+        status.textContent = res.ok ? 'Đã lưu.' : (data.error || 'Lưu thất bại.');
+        status.style.color = res.ok ? '#31a24c' : '#d93025';
+      } catch (error) {
+        status.textContent = 'Không gọi được webhook.';
+        status.style.color = '#d93025';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     document.getElementById('refresh-log').addEventListener('click', () => {
       loadTaskLogs().catch(() => {
         document.getElementById('task-log').textContent = 'Không tải được task log.';
@@ -140,6 +179,9 @@
     fetchMessages();
     loadTaskLogs().catch(() => {
       document.getElementById('task-log').textContent = 'Không tải được task log.';
+    });
+    loadSystemPrompt().catch(() => {
+      document.getElementById('prompt-status').textContent = 'Không tải được System Prompt.';
     });
     loadReplyStatus().catch(() => {
       document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
