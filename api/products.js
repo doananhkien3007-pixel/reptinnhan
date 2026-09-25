@@ -26,20 +26,12 @@ async function ensureImageBucket(supabase) {
   }
 }
 
-async function saveVariants(supabase, productId, variants = []) {
-  const cleanVariants = variants
-    .map((variant) => ({
-      product_id: productId,
-      color: String(variant.color || '').trim(),
-      size: null,
-      stock: 0
-    }))
-    .filter((variant) => variant.color);
-  const uniqueColors = [...new Map(cleanVariants.map((variant) => [variant.color.toLocaleLowerCase('vi-VN'), variant])).values()];
-
-  await supabase.from('product_variants').delete().eq('product_id', productId);
-  if (!uniqueColors.length) return;
-  const { error } = await supabase.from('product_variants').insert(uniqueColors);
+async function saveColors(supabase, productId, variants = []) {
+  const colors = [...new Map(variants
+    .map((variant) => String(variant.color || '').trim())
+    .filter(Boolean)
+    .map((color) => [color.toLocaleLowerCase('vi-VN'), color])).values()];
+  const { error } = await supabase.from('products').update({ colors, updated_at: new Date().toISOString() }).eq('id', productId);
   if (error) throw new Error(`Không thể lưu biến thể: ${error.message}`);
 }
 
@@ -59,7 +51,7 @@ export default async function handler(req, res) {
 
       if (action === 'create') {
         const generatedSku = `P-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-        const { data, error } = await supabase.from('products').insert({ ...product, sku: generatedSku, status: 'active' }).select('*').single();
+        const { data, error } = await supabase.from('products').insert({ ...product, sku: generatedSku, status: 'active', colors: [], images: [] }).select('*').single();
         if (error) throw new Error(`Không thể tạo sản phẩm: ${error.message}`);
         productId = data.id;
       } else {
@@ -71,7 +63,7 @@ export default async function handler(req, res) {
         if (error) throw new Error(`Không thể cập nhật sản phẩm: ${error.message}`);
       }
 
-      await saveVariants(supabase, productId, req.body?.variants);
+      await saveColors(supabase, productId, req.body?.variants);
       const products = await listProducts({ includeInactive: true });
       return res.status(200).json(products.find((item) => item.id === productId));
     }
@@ -112,24 +104,20 @@ export default async function handler(req, res) {
       if (uploadError) throw new Error(`Không thể upload ảnh: ${uploadError.message}`);
 
       const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(path);
+      const { data: product, error: productError } = await supabase.from('products').select('images').eq('id', productId).single();
+      if (productError) throw new Error(`Không thể lấy sản phẩm để lưu ảnh: ${productError.message}`);
+      const color = String(req.body?.color || '').trim();
       const isPrimary = Boolean(req.body?.is_primary);
-      if (isPrimary) {
-        const { error: clearPrimaryError } = await supabase
-          .from('product_images')
-          .update({ is_primary: false })
-          .eq('product_id', productId)
-          .eq('color', String(req.body?.color || '').trim());
-        if (clearPrimaryError) throw new Error(`Không thể cập nhật ảnh chính cũ: ${clearPrimaryError.message}`);
-      }
-      const { data, error } = await supabase.from('product_images').insert({
-        product_id: productId,
-        color: String(req.body?.color || '').trim(),
-        image_url: publicUrl.publicUrl,
-        is_primary: Boolean(req.body?.is_primary),
-        sort_order: Number(req.body?.sort_order || 0)
-      }).select('*').single();
-      if (error) throw new Error(`Không thể lưu ảnh sản phẩm: ${error.message}`);
-      return res.status(200).json(data);
+      const images = Array.isArray(product.images) ? product.images : [];
+      const nextImages = images.map((image) => isPrimary && image.color === color ? { ...image, is_primary: false } : image);
+      const image = {
+        id: crypto.randomUUID(), color, image_url: publicUrl.publicUrl,
+        is_primary: isPrimary, sort_order: Number(req.body?.sort_order || 0), created_at: new Date().toISOString()
+      };
+      nextImages.push(image);
+      const { error } = await supabase.from('products').update({ images: nextImages, updated_at: new Date().toISOString() }).eq('id', productId);
+      if (error) throw new Error(`Không thể lưu ảnh sản phẩm vào products: ${error.message}`);
+      return res.status(200).json(image);
     }
 
     return res.status(405).json({ error: 'Method/action không được hỗ trợ.' });

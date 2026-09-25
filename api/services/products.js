@@ -12,18 +12,10 @@ export async function listProducts({ includeInactive = true } = {}) {
   const products = data || [];
   if (!products.length) return [];
 
-  const ids = products.map((product) => product.id);
-  const [{ data: variants, error: variantsError }, { data: images, error: imagesError }] = await Promise.all([
-    supabase.from('product_variants').select('*').in('product_id', ids).order('color').order('size'),
-    supabase.from('product_images').select('*').in('product_id', ids).order('sort_order')
-  ]);
-  if (variantsError) throw new Error(`Không thể lấy product_variants: ${variantsError.message}`);
-  if (imagesError) throw new Error(`Không thể lấy product_images: ${imagesError.message}`);
-
   return products.map((product) => ({
     ...product,
-    variants: (variants || []).filter((variant) => variant.product_id === product.id),
-    images: (images || []).filter((image) => image.product_id === product.id)
+    variants: (product.colors || []).map((color) => ({ color, size: null, stock: 0 })),
+    images: product.images || []
   }));
 }
 
@@ -38,15 +30,7 @@ export async function getProductContext(productId) {
   if (productError) throw new Error(`Không thể lấy product: ${productError.message}`);
   if (!product) return null;
 
-  const { data: variants, error: variantsError } = await supabase
-    .from('product_variants')
-    .select('color, size, stock')
-    .eq('product_id', productId)
-    .order('color')
-    .order('size');
-  if (variantsError) throw new Error(`Không thể lấy product_variants: ${variantsError.message}`);
-
-  const colors = [...new Set((variants || []).map((variant) => variant.color).filter(Boolean))];
+  const colors = Array.isArray(product.colors) ? product.colors : [];
   return [
     'SẢN PHẨM ĐANG TƯ VẤN:',
     `Tên: ${product.name}`,
