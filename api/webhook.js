@@ -297,7 +297,9 @@ async function sendMessengerImage(recipientId, image, conversationId = null) {
     const errorBody = await response.text();
     throw new Error(`Facebook API gửi ảnh ${response.status}: ${errorBody}`);
   }
-  addTaskLog('Messenger', `Đã gửi ảnh sản phẩm cho khách ${recipientId}`);
+  addTaskLog('Messenger', attachmentId
+    ? `Đã gửi ảnh sản phẩm cho khách ${recipientId} bằng attachment_id ${attachmentId}`
+    : `Đã gửi ảnh sản phẩm cho khách ${recipientId} bằng URL ${imageUrl}`);
   if (conversationId) await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: '[Hình ảnh sản phẩm]' });
 }
 
