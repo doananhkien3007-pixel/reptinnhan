@@ -306,11 +306,12 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
   let productContext = null;
   let history = [];
   let productImages = [];
+  let mentionedProduct = null;
 
   if (conversationId) {
     const conversation = await getOrCreateConversation(recipientId);
     let productId = conversation.current_product_id;
-    const mentionedProduct = await findMentionedProduct(receivedText);
+    mentionedProduct = await findMentionedProduct(receivedText);
     if (mentionedProduct) {
       productId = mentionedProduct.id;
       if (productId !== conversation.current_product_id) {
@@ -334,8 +335,10 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
   await sendMessengerMessage(recipientId, reply, conversationId);
 
   const asksForImage = /(xem|gửi|cho|coi).{0,20}(hình|ảnh)|\b(hình|ảnh)\b/i.test(receivedText);
-  if (asksForImage && productImages.length) {
-    for (const image of productImages.filter((item) => item.image_url)) {
+  if ((asksForImage || mentionedProduct) && productImages.length) {
+    const availableImages = productImages.filter((item) => item.facebook_attachment_id || item.image_url);
+    const imagesToSend = asksForImage ? availableImages : availableImages.slice(0, 1);
+    for (const image of imagesToSend) {
       await sendMessengerImage(recipientId, image, conversationId);
     }
   }

@@ -98,7 +98,7 @@ export async function findMentionedProduct(message) {
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from('products')
-    .select('id, name')
+    .select('id, sku, name')
     .eq('status', DEFAULT_PRODUCT_STATUS)
     .limit(200);
   if (error) throw new Error(`Không thể tìm product: ${error.message}`);
