@@ -71,7 +71,7 @@
 
         chatBox.innerHTML = messages.map(msg => 
           '<div class="message-row">' +
-            '<div class="sender">ID Khách: ' + escapeHtml(msg.senderId) + (msg.adId ? ' · Ads ID: ' + escapeHtml(msg.adId) : '') + ' <span class="time">' + escapeHtml(msg.time) + '</span></div>' +
+            '<div class="sender">ID Khách: ' + escapeHtml(msg.senderId) + (msg.adId ? ' · Ads ID: ' + escapeHtml(msg.adId) : ' · Tự nhiên') + ' <span class="time">' + escapeHtml(msg.time) + '</span></div>' +
             '<div class="message">' + msg.text + '</div>' +
           '</div>'
         ).join('');
