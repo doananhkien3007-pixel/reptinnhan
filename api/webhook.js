@@ -278,29 +278,35 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
   }
 }
 
-async function sendMessengerImage(recipientId, image, conversationId = null) {
+async function sendMessengerImages(recipientId, images, conversationId = null) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
-  const imageUrl = image?.image_url;
-  const attachmentId = image?.facebook_attachment_id;
-  if (!pageAccessToken || !recipientId || (!imageUrl && !attachmentId)) return;
+  const attachments = images.slice(0, 30).map((image) => ({
+    type: 'image',
+    payload: image.facebook_attachment_id
+      ? { attachment_id: image.facebook_attachment_id }
+      : { url: image.image_url }
+  }));
+  if (!pageAccessToken || !recipientId || !attachments.length) return;
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       recipient: { id: recipientId },
-      message: { attachment: { type: 'image', payload: attachmentId ? { attachment_id: attachmentId } : { url: imageUrl, is_reusable: true } } }
+      message: attachments.length === 1
+        ? { attachment: attachments[0] }
+        : { attachments }
     })
   });
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Facebook API gửi ảnh ${response.status}: ${errorBody}`);
+    throw new Error(`Facebook API gửi album ảnh ${response.status}: ${errorBody}`);
   }
-  addTaskLog('Messenger', attachmentId
-    ? `Đã gửi ảnh sản phẩm cho khách ${recipientId} bằng attachment_id ${attachmentId}`
-    : `Đã gửi ảnh sản phẩm cho khách ${recipientId} bằng URL ${imageUrl}`);
-  if (conversationId) await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: '[Hình ảnh sản phẩm]' });
+  const attachmentIds = attachments.map((item) => item.payload.attachment_id).filter(Boolean);
+  const imageUrls = attachments.map((item) => item.payload.url).filter(Boolean);
+  addTaskLog('Messenger', `Đã gửi ${attachments.length} ảnh trong một tin cho khách ${recipientId}; attachment_id: ${attachmentIds.join(', ') || 'không có'}${imageUrls.length ? `; URL: ${imageUrls.join(', ')}` : ''}`);
+  if (conversationId) await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: `[Album ${attachments.length} ảnh sản phẩm]` });
 }
 
 async function replyWithOpenAI(recipientId, receivedText, conversationId = null) {
@@ -339,10 +345,7 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
   const asksForImage = /(xem|gửi|cho|coi).{0,20}(hình|ảnh)|\b(hình|ảnh)\b/i.test(receivedText);
   if ((asksForImage || mentionedProduct) && productImages.length) {
     const availableImages = productImages.filter((item) => item.facebook_attachment_id || item.image_url);
-    const imagesToSend = asksForImage ? availableImages : availableImages.slice(0, 1);
-    for (const image of imagesToSend) {
-      await sendMessengerImage(recipientId, image, conversationId);
-    }
+    if (availableImages.length) await sendMessengerImages(recipientId, availableImages, conversationId);
   }
 }
 
