@@ -86,6 +86,14 @@ export async function updateConversationProduct(conversationId, productId) {
   return data;
 }
 
+export async function updateConversationAd(conversationId, adId) {
+  const supabase = requireSupabase();
+  const { error } = await supabase.from('conversations')
+    .update({ ad_id: adId, updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+  if (error) throw new Error(`Không thể lưu Ads ID: ${error.message}`);
+}
+
 export async function findMentionedProduct(message) {
   const supabase = requireSupabase();
   const { data, error } = await supabase

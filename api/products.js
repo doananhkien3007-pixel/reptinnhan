@@ -26,6 +26,33 @@ async function ensureImageBucket(supabase) {
   }
 }
 
+async function uploadAttachmentToFacebook(imageUrl) {
+  const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
+  const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
+  if (!pageAccessToken) throw new Error('Thiếu PAGE_ACCESS_TOKEN để upload attachment lên Facebook.');
+
+  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/message_attachments?access_token=${encodeURIComponent(pageAccessToken)}`;
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: {
+        attachment: {
+          type: 'image',
+          payload: { url: imageUrl, is_reusable: true }
+        }
+      }
+    })
+  });
+  const raw = await response.text();
+  let result;
+  try { result = raw ? JSON.parse(raw) : {}; } catch { result = {}; }
+  if (!response.ok || !result.attachment_id) {
+    throw new Error(`Facebook không cấp attachment_id (${response.status}): ${raw.slice(0, 300)}`);
+  }
+  return result.attachment_id;
+}
+
 async function saveColors(supabase, productId, variants = []) {
   const colors = [...new Map(variants
     .map((variant) => String(variant.color || '').trim())
@@ -106,7 +133,7 @@ export default async function handler(req, res) {
       const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(path);
       const { data: products, error: productError } = await supabase
         .from('products')
-        .select('images')
+        .select('sku, images')
         .eq('id', productId)
         .limit(1);
       if (productError) throw new Error(`Không thể lấy sản phẩm để lưu ảnh: ${productError.message}`);
@@ -114,10 +141,12 @@ export default async function handler(req, res) {
       if (!product) throw new Error('Không tìm thấy sản phẩm để lưu ảnh.');
       const color = String(req.body?.color || '').trim();
       const isPrimary = Boolean(req.body?.is_primary);
+      const facebookAttachmentId = await uploadAttachmentToFacebook(publicUrl.publicUrl);
       const images = Array.isArray(product.images) ? product.images : [];
       const nextImages = images.map((image) => isPrimary && image.color === color ? { ...image, is_primary: false } : image);
       const image = {
-        id: crypto.randomUUID(), color, image_url: publicUrl.publicUrl,
+        id: crypto.randomUUID(), product_id: productId, product_sku: product.sku,
+        color, image_url: publicUrl.publicUrl, facebook_attachment_id: facebookAttachmentId,
         is_primary: isPrimary, sort_order: Number(req.body?.sort_order || 0), created_at: new Date().toISOString()
       };
       nextImages.push(image);

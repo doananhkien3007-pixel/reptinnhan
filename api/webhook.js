@@ -8,6 +8,7 @@ import {
   getProductImages,
   getRecentConversationMessages,
   saveConversationMessage,
+  updateConversationAd,
   updateConversationProduct
 } from './services/products.js';
 
@@ -133,12 +134,21 @@ async function getStoredMessages() {
   if (!client) return global.messages;
   const { data, error } = await client
     .from('messenger_messages')
-    .select('sender_id, direction, text, message_time')
+    .select('sender_id, direction, text, message_time, conversation_id')
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) throw new Error(`Không thể đọc tin nhắn Supabase: ${error.message}`);
+  const conversationIds = [...new Set((data || []).map((message) => message.conversation_id).filter(Boolean))];
+  const adsByConversation = new Map();
+  if (conversationIds.length) {
+    const { data: conversations, error: adError } = await client.from('conversations')
+      .select('id, ad_id').in('id', conversationIds);
+    if (adError) throw new Error(`Không thể đọc Ads ID: ${adError.message}`);
+    for (const conversation of conversations || []) adsByConversation.set(conversation.id, conversation.ad_id);
+  }
   return (data || []).reverse().map((message) => ({
     senderId: message.sender_id,
+    adId: adsByConversation.get(message.conversation_id) || null,
     direction: message.direction,
     text: message.text,
     time: new Date(message.message_time).toLocaleTimeString('vi-VN', {
@@ -268,15 +278,20 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
   }
 }
 
-async function sendMessengerImage(recipientId, imageUrl, conversationId = null) {
+async function sendMessengerImage(recipientId, image, conversationId = null) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
-  if (!pageAccessToken || !recipientId || !imageUrl) return;
+  const imageUrl = image?.image_url;
+  const attachmentId = image?.facebook_attachment_id;
+  if (!pageAccessToken || !recipientId || (!imageUrl && !attachmentId)) return;
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ recipient: { id: recipientId }, message: { attachment: { type: 'image', payload: { url: imageUrl, is_reusable: true } } } })
+    body: JSON.stringify({
+      recipient: { id: recipientId },
+      message: { attachment: { type: 'image', payload: attachmentId ? { attachment_id: attachmentId } : { url: imageUrl, is_reusable: true } } }
+    })
   });
   if (!response.ok) {
     const errorBody = await response.text();
@@ -321,7 +336,7 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
   const asksForImage = /(xem|gửi|cho|coi).{0,20}(hình|ảnh)|\b(hình|ảnh)\b/i.test(receivedText);
   if (asksForImage && productImages.length) {
     for (const image of productImages.filter((item) => item.image_url)) {
-      await sendMessengerImage(recipientId, image.image_url, conversationId);
+      await sendMessengerImage(recipientId, image, conversationId);
     }
   }
 }
@@ -413,11 +428,22 @@ export default async function handler(req, res) {
     const body = req.body;
 
     if (body.object === 'page') {
-      for (const entry of body.entry) {
-        const webhookEvent = entry.messaging[0];
-        if (!webhookEvent) continue;
+      for (const entry of body.entry || []) {
+        for (const webhookEvent of entry.messaging || []) {
         
         const senderPsid = webhookEvent.sender?.id;
+        if (!senderPsid) continue;
+        const adId = webhookEvent.referral?.ad_id || webhookEvent.message?.referral?.ad_id || webhookEvent.postback?.referral?.ad_id;
+        let conversation = null;
+        if (adId) {
+          try {
+            conversation = await getOrCreateConversation(senderPsid);
+            await updateConversationAd(conversation.id, String(adId));
+            addTaskLog('Ads', `Khách ${senderPsid} bấm quảng cáo ${adId}`);
+          } catch (error) {
+            addTaskLog('Supabase', error.message);
+          }
+        }
 
         // Nếu có tin nhắn văn bản
         if (webhookEvent.message && webhookEvent.message.text) {
@@ -434,9 +460,8 @@ export default async function handler(req, res) {
             text: receivedText,
             time: currentTime
           });
-          let conversation = null;
           try {
-            conversation = await getOrCreateConversation(senderPsid);
+            conversation ||= await getOrCreateConversation(senderPsid);
             await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
           } catch (error) {
             addTaskLog('Supabase', error.message);
@@ -454,6 +479,7 @@ export default async function handler(req, res) {
             addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
             console.log('Tự động trả lời đang tắt.');
           }
+        }
         }
       }
 
