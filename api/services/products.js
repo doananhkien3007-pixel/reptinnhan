@@ -50,6 +50,17 @@ export async function getProductImages(productId) {
   return Array.isArray(images) ? images : [];
 }
 
+export async function getProductSizeGuide(productId) {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('products')
+    .select('name, size_guide')
+    .eq('id', productId)
+    .eq('status', DEFAULT_PRODUCT_STATUS)
+    .maybeSingle();
+  if (error) throw new Error(`Không thể lấy bảng size sản phẩm: ${error.message}`);
+  return data;
+}
+
 export async function getOrCreateConversation(externalUserId) {
   const supabase = requireSupabase();
   const base = { channel: 'facebook', external_user_id: externalUserId, updated_at: new Date().toISOString() };

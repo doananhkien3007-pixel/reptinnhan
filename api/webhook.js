@@ -1,11 +1,13 @@
 // api/webhook.js
 import OpenAI from 'openai';
 import { getSupabase } from './services/supabase.js';
+import { getWeightSizeAdvice, WEIGHT_PATTERN } from './services/size-advice.js';
 import {
   findMentionedProduct,
   getOrCreateConversation,
   getProductContext,
   getProductImages,
+  getProductSizeGuide,
   getRecentConversationMessages,
   saveConversationMessage,
   updateConversationAd,
@@ -179,6 +181,24 @@ async function getStoredTaskLogs() {
 
 let openai;
 
+const CUSTOMER_CONTEXT_TOOL = {
+  type: 'function',
+  name: 'get_customer_context',
+  description: 'Lấy sản phẩm đang tư vấn, bảng size và lịch sử hội thoại mới nhất từ Supabase trước khi trả lời khách.',
+  parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  strict: true
+};
+
+const fixedProductRules = [
+  'Bạn là nhân viên tư vấn thời trang của shop, xưng "em" và gọi khách là "chị".',
+  'Chỉ được sử dụng dữ liệu trong SẢN PHẨM ĐANG TƯ VẤN và LỊCH SỬ HỘI THOẠI.',
+  'Không tự bịa giá, màu, size hoặc tồn kho.',
+  'Mọi tư vấn size phải dựa trên Size guide của đúng sản phẩm. Cân nặng ngoài các khoảng đã ghi thì không có size theo bảng; tuyệt đối không chọn size gần nhất.',
+  'Nếu dữ liệu thiếu, hãy hỏi lại khách; nếu chưa xác định sản phẩm, trả lời đúng ý: "Dạ chị đang quan tâm mẫu nào ạ? Chị gửi hình hoặc tên mẫu giúp em nhé 🌷".',
+  'Chỉ nói có thể gửi hình khi dữ liệu Hình ảnh ghi rõ là có thể gửi cho khách.',
+  'Trả lời bằng tiếng Việt tự nhiên, ngắn gọn 1-3 câu và không nói mình là AI.'
+].join('\n');
+
 async function generateOpenAIReply(receivedText, { productContext, history = [] } = {}) {
   if (!process.env.OPENAI_API_KEY) {
     addTaskLog('OpenAI', 'Lỗi: thiếu OPENAI_API_KEY');
@@ -189,14 +209,6 @@ async function generateOpenAIReply(receivedText, { productContext, history = [] 
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
 
-  const fixedProductRules = [
-    'Bạn là nhân viên tư vấn thời trang của shop, xưng "em" và gọi khách là "chị".',
-    'Chỉ được sử dụng dữ liệu trong SẢN PHẨM ĐANG TƯ VẤN và LỊCH SỬ HỘI THOẠI.',
-    'Không tự bịa giá, màu, size hoặc tồn kho.',
-    'Nếu dữ liệu thiếu, hãy hỏi lại khách; nếu chưa xác định sản phẩm, trả lời đúng ý: "Dạ chị đang quan tâm mẫu nào ạ? Chị gửi hình hoặc tên mẫu giúp em nhé 🌷".',
-    'Chỉ nói có thể gửi hình khi dữ liệu Hình ảnh ghi rõ là có thể gửi cho khách.',
-    'Trả lời bằng tiếng Việt tự nhiên, ngắn gọn 1-3 câu và không nói mình là AI.'
-  ].join('\n');
   const historyText = history.length
     ? history.map((message) => `${message.direction === 'inbound' ? 'Khách' : 'Shop'}: ${message.text}`).join('\n')
     : 'Chưa có lịch sử hội thoại.';
@@ -311,10 +323,27 @@ async function sendMessengerImages(recipientId, images, conversationId = null) {
 
 async function replyWithOpenAI(recipientId, receivedText, conversationId = null) {
   await sendMessengerAction(recipientId, 'typing_on');
+  if (!process.env.OPENAI_API_KEY) throw new Error('Chưa cấu hình OPENAI_API_KEY.');
+  if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_MODEL || 'gpt-6-luna';
+  addTaskLog('OpenAI', `Gửi nội dung khách: "${receivedText.slice(0, 120)}"`);
+
+  const toolRequest = await openai.responses.create({
+    model,
+    instructions: 'Trước khi trả lời khách, gọi get_customer_context để lấy dữ liệu hiện tại từ Supabase.',
+    input: receivedText,
+    tools: [CUSTOMER_CONTEXT_TOOL],
+    tool_choice: { type: 'function', name: CUSTOMER_CONTEXT_TOOL.name },
+    parallel_tool_calls: false
+  });
+  const toolCall = toolRequest.output.find((item) => item.type === 'function_call' && item.name === CUSTOMER_CONTEXT_TOOL.name);
+  if (!toolCall) throw new Error('OpenAI không gọi được công cụ lấy dữ liệu khách.');
+
   let productContext = null;
   let history = [];
   let productImages = [];
   let mentionedProduct = null;
+  let sizeAdvice = null;
 
   if (conversationId) {
     const conversation = await getOrCreateConversation(recipientId);
@@ -330,11 +359,37 @@ async function replyWithOpenAI(recipientId, receivedText, conversationId = null)
     if (productId) {
       productContext = await getProductContext(productId);
       productImages = await getProductImages(productId);
+      if (WEIGHT_PATTERN.test(receivedText)) sizeAdvice = getWeightSizeAdvice(receivedText, await getProductSizeGuide(productId));
     }
     history = await getRecentConversationMessages(conversation.id, 10);
   }
+  if (!sizeAdvice && WEIGHT_PATTERN.test(receivedText)) sizeAdvice = getWeightSizeAdvice(receivedText, null);
 
-  const reply = await generateOpenAIReply(receivedText, { productContext, history });
+  const historyText = history.length
+    ? history.map((message) => `${message.direction === 'inbound' ? 'Khách' : 'Shop'}: ${message.text}`).join('\n')
+    : 'Chưa có lịch sử hội thoại.';
+  addTaskLog('Supabase', `Đã trả dữ liệu sản phẩm và lịch sử cho OpenAI; khách ${recipientId}`);
+  const finalResponse = await openai.responses.create({
+    model,
+    previous_response_id: toolRequest.id,
+    instructions: `${global.openaiSystemPrompt}\n\n${fixedProductRules}\nNếu dữ liệu tool có sizeAdvice, dùng đúng câu trả lời đó và không tự chọn size khác.`,
+    input: [{
+      type: 'function_call_output',
+      call_id: toolCall.call_id,
+      output: JSON.stringify({
+        productContext: productContext || 'SẢN PHẨM ĐANG TƯ VẤN: Chưa xác định. Không được đoán sản phẩm.',
+        history: historyText,
+        sizeAdvice: sizeAdvice?.reply || null
+      })
+    }],
+    tools: [CUSTOMER_CONTEXT_TOOL],
+    tool_choice: 'none'
+  });
+  const generatedReply = finalResponse.output_text?.trim();
+  if (!generatedReply) throw new Error('OpenAI không trả về nội dung trả lời.');
+  const reply = sizeAdvice?.reply || generatedReply;
+  if (sizeAdvice && generatedReply !== reply) addTaskLog('Size', `Đã thay câu trả lời AI bằng kết quả bảng size: ${reply}`);
+  addTaskLog('OpenAI', `Nhận câu trả lời: "${reply.slice(0, 160)}"`);
 
   const delayMs = 500 + Math.floor(Math.random() * 1001);
   addTaskLog('Auto-reply', `Chờ thêm ${delayMs}ms trước khi gửi câu trả lời`);
