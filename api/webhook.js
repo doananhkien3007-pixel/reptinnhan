@@ -433,7 +433,8 @@ export default async function handler(req, res) {
         
         const senderPsid = webhookEvent.sender?.id;
         if (!senderPsid) continue;
-        const adId = webhookEvent.referral?.ad_id || webhookEvent.message?.referral?.ad_id || webhookEvent.postback?.referral?.ad_id;
+        const referral = webhookEvent.referral || webhookEvent.message?.referral || webhookEvent.postback?.referral || webhookEvent.optin?.referral;
+        const adId = referral?.ad_id || referral?.source_id || referral?.ads_context_data?.ad_id;
         let conversation = null;
         if (adId) {
           try {
