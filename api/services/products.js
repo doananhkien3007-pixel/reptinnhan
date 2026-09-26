@@ -99,23 +99,26 @@ export async function updateConversationProduct(conversationId, productId) {
 
 export async function updateConversationAd(conversation, adId) {
   const supabase = requireSupabase();
+  const values = {
+    ad_id: adId,
+    updated_at: new Date().toISOString()
+  };
+  if (conversation.ad_id !== adId) values.current_product_id = null;
+  const { error: saveError } = await supabase.from('conversations')
+    .update(values)
+    .eq('id', conversation.id);
+  if (saveError) throw new Error(`Không thể lưu Ads ID: ${saveError.message}`);
+
   const { data: mapping, error: mappingError } = await supabase
     .from('ad_product_mappings')
     .select('product_id')
     .eq('ad_id', adId)
     .maybeSingle();
-  if (mappingError) throw new Error(`Không thể tìm sản phẩm theo Ads ID: ${mappingError.message}`);
-
+  if (mappingError) throw new Error(`Đã lưu Ads ID nhưng không thể tìm sản phẩm: ${mappingError.message}`);
   const productId = mapping?.product_id ?? null;
-  const values = {
-    ad_id: adId,
-    updated_at: new Date().toISOString()
-  };
-  if (productId || conversation.ad_id !== adId) values.current_product_id = productId;
-  const { error } = await supabase.from('conversations')
-    .update(values)
-    .eq('id', conversation.id);
-  if (error) throw new Error(`Không thể lưu Ads ID: ${error.message}`);
+  if (productId && (conversation.ad_id !== adId || conversation.current_product_id !== productId)) {
+    await updateConversationProduct(conversation.id, productId);
+  }
   return productId;
 }
 
