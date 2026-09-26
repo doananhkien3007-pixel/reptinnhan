@@ -1,6 +1,7 @@
 // api/webhook.js
 import OpenAI from 'openai';
 import { getSupabase } from './services/supabase.js';
+import { getAdReferral } from './services/ad-referral.js';
 import { getWeightSizeAdvice, WEIGHT_PATTERN } from './services/size-advice.js';
 import {
   findMentionedProduct,
@@ -492,58 +493,64 @@ export default async function handler(req, res) {
 
     if (body.object === 'page') {
       for (const entry of body.entry || []) {
-        for (const webhookEvent of entry.messaging || []) {
-        
-        const senderPsid = webhookEvent.sender?.id;
-        if (!senderPsid) continue;
-        const referral = webhookEvent.referral || webhookEvent.message?.referral || webhookEvent.postback?.referral || webhookEvent.optin?.referral;
-        const adId = referral?.ad_id || referral?.ads_context_data?.ad_id;
-        let conversation = null;
-        if (adId) {
-          try {
-            conversation = await getOrCreateConversation(senderPsid);
-            const productId = await updateConversationAd(conversation, String(adId));
-            addTaskLog('Ads', `Khách ${senderPsid} bấm quảng cáo ${adId}${productId ? ` → sản phẩm ${productId}` : ' (chưa map sản phẩm)'}`);
-          } catch (error) {
-            addTaskLog('Supabase', error.message);
-          }
-        }
+        for (const [channel, events] of [['messaging', entry.messaging || []], ['standby', entry.standby || []]]) {
+          for (const webhookEvent of events) {
+            const senderPsid = webhookEvent.sender?.id;
+            if (!senderPsid) continue;
+            const { adId, location, source } = getAdReferral(webhookEvent);
+            let conversation = null;
+            if (adId) {
+              try {
+                conversation = await getOrCreateConversation(senderPsid);
+                const productId = await updateConversationAd(conversation, adId);
+                addTaskLog('Ads', `Khách ${senderPsid}: ad_id ${adId} từ ${channel}.${location}${productId ? ` → sản phẩm ${productId}` : ' (chưa map sản phẩm)'}`);
+              } catch (error) {
+                addTaskLog('Supabase', error.message);
+              }
+            } else if (location) {
+              addTaskLog('Ads', `Khách ${senderPsid}: ${channel}.${location}, source ${source || 'không có'}, nhưng Meta không gửi ad_id`);
+            } else if (channel === 'messaging' && webhookEvent.message?.text) {
+              addTaskLog('Ads', `Khách ${senderPsid}: tin nhắn không có referral/ad_id trong payload Meta`);
+            }
 
-        // Nếu có tin nhắn văn bản
-        if (webhookEvent.message && webhookEvent.message.text) {
-          const receivedText = webhookEvent.message.text;
-          addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
-          
-          // LƯU TIN NHẮN VÀO BỘ NHỚ (Để hiển thị lên trang chủ)
-          const currentTime = new Date().toLocaleTimeString('vi-VN', {
-            timeZone: 'Asia/Ho_Chi_Minh',
-            hour12: false
-          });
-          global.messages.push({
-            senderId: senderPsid,
-            text: receivedText,
-            time: currentTime
-          });
-          try {
-            conversation ||= await getOrCreateConversation(senderPsid);
-            await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
-          } catch (error) {
-            addTaskLog('Supabase', error.message);
-          }
-          
-          console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
+            if (channel === 'standby') continue;
 
-          // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
-          if (global.autoReplyEnabled) {
-            // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
-            replyWithOpenAI(senderPsid, receivedText, conversation?.id || null)
-              .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
-              .catch((error) => console.error('Không thể tạo/gửi tin nhắn trả lời:', error));
-          } else {
-            addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
-            console.log('Tự động trả lời đang tắt.');
+            // Nếu có tin nhắn văn bản
+            if (webhookEvent.message && webhookEvent.message.text) {
+              const receivedText = webhookEvent.message.text;
+              addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
+
+              // LƯU TIN NHẮN VÀO BỘ NHỚ (Để hiển thị lên trang chủ)
+              const currentTime = new Date().toLocaleTimeString('vi-VN', {
+                timeZone: 'Asia/Ho_Chi_Minh',
+                hour12: false
+              });
+              global.messages.push({
+                senderId: senderPsid,
+                text: receivedText,
+                time: currentTime
+              });
+              try {
+                conversation ||= await getOrCreateConversation(senderPsid);
+                await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
+              } catch (error) {
+                addTaskLog('Supabase', error.message);
+              }
+
+              console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
+
+              // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
+              if (global.autoReplyEnabled) {
+                // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
+                replyWithOpenAI(senderPsid, receivedText, conversation?.id || null)
+                  .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
+                  .catch((error) => console.error('Không thể tạo/gửi tin nhắn trả lời:', error));
+              } else {
+                addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
+                console.log('Tự động trả lời đang tắt.');
+              }
+            }
           }
-        }
         }
       }
 
