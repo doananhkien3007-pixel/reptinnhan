@@ -86,12 +86,26 @@ export async function updateConversationProduct(conversationId, productId) {
   return data;
 }
 
-export async function updateConversationAd(conversationId, adId) {
+export async function updateConversationAd(conversation, adId) {
   const supabase = requireSupabase();
+  const { data: mapping, error: mappingError } = await supabase
+    .from('ad_product_mappings')
+    .select('product_id')
+    .eq('ad_id', adId)
+    .maybeSingle();
+  if (mappingError) throw new Error(`Không thể tìm sản phẩm theo Ads ID: ${mappingError.message}`);
+
+  const productId = mapping?.product_id ?? null;
+  const values = {
+    ad_id: adId,
+    updated_at: new Date().toISOString()
+  };
+  if (productId || conversation.ad_id !== adId) values.current_product_id = productId;
   const { error } = await supabase.from('conversations')
-    .update({ ad_id: adId, updated_at: new Date().toISOString() })
-    .eq('id', conversationId);
+    .update(values)
+    .eq('id', conversation.id);
   if (error) throw new Error(`Không thể lưu Ads ID: ${error.message}`);
+  return productId;
 }
 
 export async function findMentionedProduct(message) {

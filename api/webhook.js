@@ -442,13 +442,13 @@ export default async function handler(req, res) {
         const senderPsid = webhookEvent.sender?.id;
         if (!senderPsid) continue;
         const referral = webhookEvent.referral || webhookEvent.message?.referral || webhookEvent.postback?.referral || webhookEvent.optin?.referral;
-        const adId = referral?.ad_id || referral?.source_id || referral?.ads_context_data?.ad_id;
+        const adId = referral?.ad_id || referral?.ads_context_data?.ad_id;
         let conversation = null;
         if (adId) {
           try {
             conversation = await getOrCreateConversation(senderPsid);
-            await updateConversationAd(conversation.id, String(adId));
-            addTaskLog('Ads', `Khách ${senderPsid} bấm quảng cáo ${adId}`);
+            const productId = await updateConversationAd(conversation, String(adId));
+            addTaskLog('Ads', `Khách ${senderPsid} bấm quảng cáo ${adId}${productId ? ` → sản phẩm ${productId}` : ' (chưa map sản phẩm)'}`);
           } catch (error) {
             addTaskLog('Supabase', error.message);
           }
