@@ -19,6 +19,30 @@ export async function listProducts({ includeInactive = true } = {}) {
   }));
 }
 
+export async function getOnlyActiveProduct() {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('products')
+    .select('id, name, sku, images')
+    .eq('status', DEFAULT_PRODUCT_STATUS)
+    .limit(2);
+  if (error) throw new Error(`Không thể lấy sản phẩm đang bán: ${error.message}`);
+  if (!data?.length) throw new Error('Supabase chưa có sản phẩm đang hoạt động.');
+  if (data.length > 1) throw new Error('Có nhiều hơn một sản phẩm đang hoạt động; không thể tự chọn mẫu để tư vấn.');
+  return data[0];
+}
+
+export async function hasSentProductIntroduction(conversationId, promotionMessage) {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('messenger_messages')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .eq('direction', 'outbound')
+    .eq('text', promotionMessage)
+    .limit(1);
+  if (error) throw new Error(`Không thể kiểm tra lời chào sản phẩm: ${error.message}`);
+  return Boolean(data?.length);
+}
+
 export async function getProductContext(productId) {
   const supabase = requireSupabase();
   const { data: product, error: productError } = await supabase

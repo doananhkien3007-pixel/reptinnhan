@@ -1,11 +1,12 @@
-export const WEIGHT_PATTERN = /\b(\d{2,3}(?:[.,]\d+)?)\s*(?:kg|ký|kí)(?=$|[\s.,!?])/i;
+export const WEIGHT_PATTERN = /\b(\d{2,3}(?:[.,]\d+)?)\s*(?:kg|ký|kí)(?=$|[\s.,!?])|(?:nặng|cân nặng)\s*[:：]?\s*(\d{2,3}(?:[.,]\d+)?)(?=$|[\s.,!?])/i;
 
 export function getWeightSizeAdvice(message, product) {
   const weightMatch = String(message).match(WEIGHT_PATTERN);
   if (!weightMatch) return null;
 
-  const weight = Number(weightMatch[1].replace(',', '.'));
-  const label = `${weightMatch[1]}kg`;
+  const weightText = weightMatch[1] || weightMatch[2];
+  const weight = Number(weightText.replace(',', '.'));
+  const label = `${weightText}kg`;
   if (!product) {
     return { reply: 'Dạ chị đang quan tâm mẫu nào ạ? Chị gửi hình hoặc tên mẫu giúp em để em xem bảng size chính xác nhé 🌷', size: null };
   }
