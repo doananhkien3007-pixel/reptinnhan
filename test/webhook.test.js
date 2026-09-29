@@ -21,6 +21,7 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     ]
   };
   let conversation = null;
+  let savedAutoReplyEnabled = true;
   const storedMessages = [];
   const sentToMessenger = [];
   const originalFetch = globalThis.fetch;
@@ -40,7 +41,15 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
 
     const table = url.pathname.split('/').at(-1);
     const single = new Headers(init.headers).get('accept')?.includes('vnd.pgrst.object');
-    if (table === 'app_settings' || table === 'system_prompts') return json(single ? null : []);
+    if (table === 'app_settings') {
+      if (method === 'POST') {
+        savedAutoReplyEnabled = JSON.parse(init.body).value.enabled;
+        return json(null, 201);
+      }
+      const setting = { value: { enabled: savedAutoReplyEnabled } };
+      return json(single ? setting : [setting]);
+    }
+    if (table === 'system_prompts') return json(single ? null : []);
     if (table === 'conversations') {
       if (method === 'GET') return json(single ? conversation : conversation ? [conversation] : []);
       if (method === 'POST') conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: null };
@@ -69,6 +78,15 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
   };
 
   const { default: handler } = await import('../api/webhook.js');
+  const action = async (method, name) => {
+    const res = {
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    await handler({ method, query: { action: name }, body: {} }, res);
+    assert.equal(res.statusCode, 200);
+    return res.body;
+  };
   const deliver = async (message) => {
     const req = {
       method: 'POST',
@@ -91,6 +109,14 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
   };
 
   try {
+    assert.equal((await action('GET', 'auto_reply_status')).enabled, true);
+    assert.equal((await action('POST', 'toggle_auto_reply')).enabled, false);
+    global.autoReplyEnabled = true; // Mô phỏng một phiên chạy giữ trạng thái cũ.
+    await deliver('Chào shop');
+    assert.equal(sentToMessenger.length, 0);
+    assert.equal((await action('GET', 'auto_reply_status')).enabled, false);
+    assert.equal((await action('POST', 'toggle_auto_reply')).enabled, true);
+
     await deliver('Chào shop');
     await waitFor(() => sentToMessenger.filter((item) => item.message).length === 4);
     const firstReplies = sentToMessenger.filter((item) => item.message).map((item) => item.message);

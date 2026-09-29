@@ -66,21 +66,6 @@ async function loadSettings() {
   const client = getSupabase();
   if (!client) return;
 
-  const { data, error } = await client
-    .from('app_settings')
-    .select('key, value')
-    .eq('key', 'auto_reply_enabled');
-  if (error) {
-    console.error('Không thể tải cài đặt từ Supabase:', error.message);
-    return;
-  }
-
-  for (const setting of data || []) {
-    if (setting.key === 'auto_reply_enabled' && typeof setting.value?.enabled === 'boolean') {
-      global.autoReplyEnabled = setting.value.enabled;
-    }
-  }
-
   const { data: promptRow, error: promptError } = await client
     .from('system_prompts')
     .select('prompt')
@@ -95,9 +80,22 @@ async function loadSettings() {
   global.settingsLoaded = true;
 }
 
+async function readAutoReplyEnabled() {
+  const client = getSupabase();
+  if (!client) throw new Error('Chưa cấu hình Supabase để đọc trạng thái tự động trả lời.');
+  const { data, error } = await client.from('app_settings')
+    .select('value')
+    .eq('key', 'auto_reply_enabled')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Không thể đọc trạng thái tự động trả lời: ${error.message}`);
+  global.autoReplyEnabled = typeof data?.value?.enabled === 'boolean' ? data.value.enabled : true;
+  return global.autoReplyEnabled;
+}
+
 async function saveSetting(key, value) {
   const client = getSupabase();
-  if (!client) return;
+  if (!client) throw new Error('Chưa cấu hình Supabase để lưu trạng thái tự động trả lời.');
   const { error } = await client.from('app_settings').upsert({
     key,
     value,
@@ -434,7 +432,11 @@ export default async function handler(req, res) {
     const action = req.query['action'];
 
     if (action === 'auto_reply_status') {
-      return res.status(200).json({ enabled: global.autoReplyEnabled });
+      try {
+        return res.status(200).json({ enabled: await readAutoReplyEnabled() });
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
     }
 
     if (action === 'get_task_logs') {
@@ -489,10 +491,15 @@ export default async function handler(req, res) {
     const action = req.query['action'];
 
     if (action === 'toggle_auto_reply') {
-      global.autoReplyEnabled = !global.autoReplyEnabled;
-      await saveSetting('auto_reply_enabled', { enabled: global.autoReplyEnabled });
-      addTaskLog('Web', `Đã ${global.autoReplyEnabled ? 'bật' : 'tắt'} tự động trả lời`);
-      return res.status(200).json({ enabled: global.autoReplyEnabled });
+      try {
+        const enabled = !await readAutoReplyEnabled();
+        await saveSetting('auto_reply_enabled', { enabled });
+        global.autoReplyEnabled = enabled;
+        addTaskLog('Web', `Đã ${enabled ? 'bật' : 'tắt'} tự động trả lời`);
+        return res.status(200).json({ enabled });
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
     }
 
     if (action === 'set_system_prompt') {
@@ -509,6 +516,13 @@ export default async function handler(req, res) {
     const body = req.body;
 
     if (body.object === 'page') {
+      let autoReplyEnabled;
+      try {
+        autoReplyEnabled = await readAutoReplyEnabled();
+      } catch (error) {
+        addTaskLog('Auto-reply', error.message);
+        return res.status(503).json({ error: error.message });
+      }
       for (const entry of body.entry || []) {
         for (const [channel, events] of [['messaging', entry.messaging || []], ['standby', entry.standby || []]]) {
           for (const webhookEvent of events) {
@@ -560,7 +574,7 @@ export default async function handler(req, res) {
               console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
 
               // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
-              if (global.autoReplyEnabled) {
+              if (autoReplyEnabled) {
                 // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
                 replyWithOpenAI(senderPsid, receivedText, conversation?.id || null)
                   .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))

@@ -100,19 +100,25 @@
     async function loadReplyStatus() {
       const res = await fetch('/api/webhook?action=auto_reply_status');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Không lấy được trạng thái');
       autoReplyEnabled = data.enabled;
       updateReplyControl();
     }
 
     document.getElementById('reply-toggle').addEventListener('click', async () => {
-      const res = await fetch('/api/webhook?action=toggle_auto_reply', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        alert('Không thể đổi trạng thái trả lời tự động.');
-        return;
+      const button = document.getElementById('reply-toggle');
+      button.disabled = true;
+      try {
+        const res = await fetch('/api/webhook?action=toggle_auto_reply', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Không thể đổi trạng thái');
+        autoReplyEnabled = data.enabled;
+        updateReplyControl();
+      } catch (error) {
+        document.getElementById('reply-status').textContent = `Lỗi: ${error.message}`;
+      } finally {
+        button.disabled = false;
       }
-      autoReplyEnabled = data.enabled;
-      updateReplyControl();
     });
 
     document.getElementById('test-openai').addEventListener('click', async () => {
@@ -194,6 +200,9 @@
     
     // Làm mới nhanh để tin nhắn khách hiện gần như ngay lập tức.
     setInterval(fetchMessages, 1000);
+    setInterval(() => loadReplyStatus().catch(() => {
+      document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
+    }), 10000);
   </script>
 </body>
 </html>
