@@ -69,11 +69,11 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
   };
 
   const { default: handler } = await import('../api/webhook.js');
-  const deliver = async (text) => {
+  const deliver = async (message) => {
     const req = {
       method: 'POST',
       query: {},
-      body: { object: 'page', entry: [{ messaging: [{ sender: { id: 'customer' }, message: { text } }] }] }
+      body: { object: 'page', entry: [{ messaging: [{ sender: { id: 'customer' }, message: typeof message === 'string' ? { text: message } : message }] }] }
     };
     const res = {
       status(code) { this.statusCode = code; return this; },
@@ -91,7 +91,7 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
   };
 
   try {
-    await deliver('xem váy');
+    await deliver('Chào shop');
     await waitFor(() => sentToMessenger.filter((item) => item.message).length === 4);
     const firstReplies = sentToMessenger.filter((item) => item.message).map((item) => item.message);
     assert.deepEqual(firstReplies[0].attachments.map((item) => item.payload.url), [
@@ -101,8 +101,12 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     assert.match(firstReplies[2].text, /cotton lạnh/);
     assert.match(firstReplies[3].text, /chiều cao \+ cân nặng/);
 
-    await deliver('cao 1m60 nặng 55');
+    await deliver({ attachments: [{ type: 'image', payload: { url: 'https://example.com/customer.jpg' } }] });
     await waitFor(() => sentToMessenger.filter((item) => item.message).length === 5);
+    assert.match(sentToMessenger.filter((item) => item.message).at(-1).message.text, /chiều cao \+ cân nặng/);
+
+    await deliver('cao 1m60 nặng 55');
+    await waitFor(() => sentToMessenger.filter((item) => item.message).length === 6);
     const followup = sentToMessenger.filter((item) => item.message).at(-1).message;
     assert.match(followup.text, /size M/);
     assert.equal(sentToMessenger.filter((item) => item.message?.attachments).length, 1);
