@@ -128,10 +128,13 @@ export async function updateConversationAd(conversation, adId) {
     updated_at: new Date().toISOString()
   };
   if (conversation.ad_id !== adId) values.current_product_id = null;
-  const { error: saveError } = await supabase.from('conversations')
+  const { data: saved, error: saveError } = await supabase.from('conversations')
     .update(values)
-    .eq('id', conversation.id);
+    .eq('id', conversation.id)
+    .select('ad_id')
+    .single();
   if (saveError) throw new Error(`Không thể lưu Ads ID: ${saveError.message}`);
+  if (saved?.ad_id !== adId) throw new Error('Không thể xác nhận Ads ID đã được lưu.');
 
   const { data: mapping, error: mappingError } = await supabase
     .from('ad_product_mappings')

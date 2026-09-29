@@ -53,9 +53,10 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     if (table === 'conversations') {
       if (method === 'GET') return json(single ? conversation : conversation ? [conversation] : []);
       if (method === 'POST') conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: null };
-      if (method === 'PATCH') conversation = { ...conversation, current_product_id: product.id };
+      if (method === 'PATCH') conversation = { ...conversation, ...JSON.parse(init.body) };
       return json(single ? conversation : [conversation], method === 'POST' ? 201 : 200);
     }
+    if (table === 'ad_product_mappings') return json(single ? null : []);
     if (table === 'products') {
       const select = url.searchParams.get('select');
       if (select === 'images') return json([{ images: product.images }]);
@@ -66,6 +67,12 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
       if (method === 'POST') {
         storedMessages.push(JSON.parse(init.body));
         return json(null, 201);
+      }
+      if (url.searchParams.get('select') === 'sender_id,direction,text,message_time,conversation_id') {
+        return json(storedMessages.map((message) => ({
+          ...message,
+          message_time: '2026-09-29T00:00:00Z'
+        })));
       }
       const textFilter = url.searchParams.get('text');
       const matches = storedMessages.filter((message) =>
@@ -136,6 +143,14 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     const followup = sentToMessenger.filter((item) => item.message).at(-1).message;
     assert.match(followup.text, /size M/);
     assert.equal(sentToMessenger.filter((item) => item.message?.attachments).length, 1);
+
+    assert.equal((await action('POST', 'toggle_auto_reply')).enabled, false);
+    await deliver({ text: 'Tôi muốn xem mẫu quảng cáo', referral: { source: 'ADS', ad_id: '123456789' } });
+    assert.equal(conversation.ad_id, '123456789');
+    storedMessages.push({ sender_id: 'customer', direction: 'inbound', text: 'Tin nhắn cũ', conversation_id: null });
+    const messages = await action('GET', 'get_messages');
+    assert.equal(messages.find((message) => message.text === 'Tôi muốn xem mẫu quảng cáo').adId, '123456789');
+    assert.equal(messages.find((message) => message.text === 'Tin nhắn cũ').adId, '123456789');
   } finally {
     globalThis.fetch = originalFetch;
   }

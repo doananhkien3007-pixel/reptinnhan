@@ -62,6 +62,9 @@
       try {
         const res = await fetch('/api/webhook?action=get_messages');
         const messages = await res.json();
+        if (!res.ok || !Array.isArray(messages)) {
+          throw new Error(messages?.error || 'Không đọc được danh sách tin nhắn.');
+        }
         
         const chatBox = document.getElementById('chat-box');
         if (messages.length === 0) {
@@ -71,8 +74,8 @@
 
         chatBox.innerHTML = messages.map(msg => 
           '<div class="message-row">' +
-            '<div class="sender">ID Khách: ' + escapeHtml(msg.senderId) + (msg.adId ? ' · Ads ID: ' + escapeHtml(msg.adId) : ' · Tự nhiên') + ' <span class="time">' + escapeHtml(msg.time) + '</span></div>' +
-            '<div class="message">' + msg.text + '</div>' +
+            '<div class="sender">ID Khách: ' + escapeHtml(msg.senderId) + (msg.adId ? ' · Ads ID: ' + escapeHtml(msg.adId) : ' · Chưa có Ads ID') + ' <span class="time">' + escapeHtml(msg.time) + '</span></div>' +
+            '<div class="message">' + escapeHtml(msg.text) + '</div>' +
           '</div>'
         ).join('');
         
@@ -80,6 +83,7 @@
         chatBox.scrollTop = chatBox.scrollHeight;
       } catch (err) {
         console.error('Lỗi khi lấy tin nhắn', err);
+        document.getElementById('chat-box').textContent = 'Không tải được tin nhắn: ' + err.message;
       }
     }
 

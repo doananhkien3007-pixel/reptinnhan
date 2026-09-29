@@ -152,9 +152,23 @@ async function getStoredMessages() {
     if (adError) throw new Error(`Không thể đọc Ads ID: ${adError.message}`);
     for (const conversation of conversations || []) adsByConversation.set(conversation.id, conversation.ad_id);
   }
+  // Tin nhắn được lưu trước khi có conversation_id vẫn thuộc về cùng khách hàng.
+  const senderIds = [...new Set((data || [])
+    .filter((message) => !adsByConversation.get(message.conversation_id))
+    .map((message) => message.sender_id)
+    .filter(Boolean))];
+  const adsBySender = new Map();
+  if (senderIds.length) {
+    const { data: conversations, error: adError } = await client.from('conversations')
+      .select('external_user_id, ad_id')
+      .eq('channel', 'facebook')
+      .in('external_user_id', senderIds);
+    if (adError) throw new Error(`Không thể đọc Ads ID theo khách hàng: ${adError.message}`);
+    for (const conversation of conversations || []) adsBySender.set(conversation.external_user_id, conversation.ad_id);
+  }
   return (data || []).reverse().map((message) => ({
     senderId: message.sender_id,
-    adId: adsByConversation.get(message.conversation_id) || null,
+    adId: adsByConversation.get(message.conversation_id) || adsBySender.get(message.sender_id) || null,
     direction: message.direction,
     text: message.text,
     time: new Date(message.message_time).toLocaleTimeString('vi-VN', {
@@ -561,6 +575,7 @@ export default async function handler(req, res) {
               });
               global.messages.push({
                 senderId: senderPsid,
+                adId: adId || conversation?.ad_id || null,
                 text: receivedText,
                 time: currentTime
               });
