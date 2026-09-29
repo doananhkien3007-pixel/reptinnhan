@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, tin sau tư vấn size', async () => {
+test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', async () => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SECRET_KEY = 'test-secret';
   process.env.PAGE_ACCESS_TOKEN = 'test-page-token';
@@ -21,9 +21,10 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     ]
   };
   let conversation = null;
-  let savedAutoReplyEnabled = true;
+  const settings = new Map([['auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } }]]);
   const storedMessages = [];
   const sentToMessenger = [];
+  let failSecondImageOnce = false;
   const originalFetch = globalThis.fetch;
   const json = (data, status = 200) => new Response(JSON.stringify(data), {
     status,
@@ -35,6 +36,11 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     const method = init.method || 'GET';
     if (url.hostname === 'graph.facebook.com') {
       const payload = JSON.parse(init.body);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (failSecondImageOnce && payload.message?.attachment?.payload?.url === 'https://example.com/secondary.jpg') {
+        failSecondImageOnce = false;
+        return json({ error: 'temporary image error' }, 500);
+      }
       sentToMessenger.push(payload);
       return json({ message_id: `mid-${sentToMessenger.length}` });
     }
@@ -42,12 +48,29 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     const table = url.pathname.split('/').at(-1);
     const single = new Headers(init.headers).get('accept')?.includes('vnd.pgrst.object');
     if (table === 'app_settings') {
+      const key = url.searchParams.get('key')?.slice(3);
+      const stamp = url.searchParams.get('updated_at')?.slice(3);
       if (method === 'POST') {
-        savedAutoReplyEnabled = JSON.parse(init.body).value.enabled;
+        const row = JSON.parse(init.body);
+        if (settings.has(row.key) && row.key !== 'auto_reply_enabled') {
+          return json({ code: '23505', message: 'duplicate key' }, 409);
+        }
+        settings.set(row.key, row);
         return json(null, 201);
       }
-      const setting = { value: { enabled: savedAutoReplyEnabled } };
-      return json(single ? setting : [setting]);
+      if (method === 'PATCH') {
+        const current = settings.get(key);
+        if (!current || (stamp && current.updated_at !== stamp)) return json(single ? null : []);
+        const updated = { ...current, ...JSON.parse(init.body) };
+        settings.set(key, updated);
+        return json(single ? updated : [updated]);
+      }
+      if (method === 'DELETE') {
+        if (settings.get(key)?.updated_at === stamp) settings.delete(key);
+        return json(null);
+      }
+      const setting = settings.get(key);
+      return json(single ? setting || null : setting ? [setting] : []);
     }
     if (table === 'system_prompts') return json(single ? null : []);
     if (table === 'conversations') {
@@ -73,6 +96,11 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
           ...message,
           message_time: '2026-09-29T00:00:00Z'
         })));
+      }
+      if (url.searchParams.get('select') === 'text') {
+        return json(storedMessages.filter((message) =>
+          message.conversation_id === conversation?.id && message.direction === 'outbound'
+        ).map((message) => ({ text: message.text })));
       }
       const textFilter = url.searchParams.get('text');
       const matches = storedMessages.filter((message) =>
@@ -107,14 +135,6 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     await handler(req, res);
     assert.equal(res.statusCode, 200);
   };
-  const waitFor = async (predicate) => {
-    for (let attempt = 0; attempt < 100; attempt++) {
-      if (predicate()) return;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error(`Timed out; sent ${JSON.stringify(sentToMessenger)}`);
-  };
-
   try {
     assert.equal((await action('GET', 'auto_reply_status')).enabled, true);
     assert.equal((await action('POST', 'toggle_auto_reply')).enabled, false);
@@ -124,25 +144,34 @@ test('tin nhắn đầu tự gửi album và tư vấn sản phẩm duy nhất, 
     assert.equal((await action('GET', 'auto_reply_status')).enabled, false);
     assert.equal((await action('POST', 'toggle_auto_reply')).enabled, true);
 
-    await deliver('Chào shop');
-    await waitFor(() => sentToMessenger.filter((item) => item.message).length === 4);
-    const firstReplies = sentToMessenger.filter((item) => item.message).map((item) => item.message);
-    assert.deepEqual(firstReplies[0].attachments.map((item) => item.payload.url), [
-      'https://example.com/primary.jpg', 'https://example.com/secondary.jpg'
-    ]);
-    assert.match(firstReplies[1].text, /289K \+ freeship/);
-    assert.match(firstReplies[2].text, /cotton lạnh/);
-    assert.match(firstReplies[3].text, /chiều cao \+ cân nặng/);
+    failSecondImageOnce = true;
+    const originalError = console.error;
+    const sendErrors = [];
+    console.error = (...args) => sendErrors.push(args);
+    try {
+      await Promise.all([deliver('Chào shop'), deliver('Giá bao nhiêu?'), deliver('Chào shop')]);
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(sendErrors.length, 1);
+    assert.equal(sentToMessenger.length, 1);
+    assert.equal(settings.has('bot_welcome:customer'), false);
+
+    await Promise.all([deliver('Gửi tiếp'), deliver('Tư vấn giúp chị')]);
+    assert.equal(sentToMessenger.length, 4);
+    assert.equal(settings.get('bot_welcome:customer')?.value?.status, 'complete');
+    const firstReplies = sentToMessenger.map((item) => item.message);
+    assert.equal(firstReplies[0].attachment.payload.url, 'https://example.com/primary.jpg');
+    assert.equal(firstReplies[1].attachment.payload.url, 'https://example.com/secondary.jpg');
+    assert.equal(firstReplies[0].attachments, undefined);
+    assert.equal(firstReplies[1].attachments, undefined);
+    assert.equal(firstReplies[2].text, '🌷 Dạ mẫu này bên em đang giảm giá còn 289K + MIỄN PHÍ SHIP chị nha, ngày mai bên em về lại giá gốc 450K ạ 🥰  Vải cotton lạnh mềm mát, co giãn nhẹ, ít nhăn, mặc thoải mái không bí nóng. Form lên dáng đẹp, dễ mặc lắm chị ạ.');
+    assert.match(firstReplies[3].text, /cân nặng và chiều cao/);
 
     await deliver({ attachments: [{ type: 'image', payload: { url: 'https://example.com/customer.jpg' } }] });
-    await waitFor(() => sentToMessenger.filter((item) => item.message).length === 5);
-    assert.match(sentToMessenger.filter((item) => item.message).at(-1).message.text, /chiều cao \+ cân nặng/);
-
     await deliver('cao 1m60 nặng 55');
-    await waitFor(() => sentToMessenger.filter((item) => item.message).length === 6);
-    const followup = sentToMessenger.filter((item) => item.message).at(-1).message;
-    assert.match(followup.text, /size M/);
-    assert.equal(sentToMessenger.filter((item) => item.message?.attachments).length, 1);
+    await deliver('Chào shop');
+    assert.equal(sentToMessenger.length, 4);
 
     assert.equal((await action('POST', 'toggle_auto_reply')).enabled, false);
     await deliver({ text: 'Tôi muốn xem mẫu quảng cáo', referral: { source: 'ADS', ad_id: '123456789' } });

@@ -31,16 +31,15 @@ export async function getOnlyActiveProduct() {
   return data[0];
 }
 
-export async function hasSentProductIntroduction(conversationId, promotionMessage) {
+export async function getSentConversationTexts(conversationId, texts) {
   const supabase = requireSupabase();
   const { data, error } = await supabase.from('messenger_messages')
-    .select('id')
+    .select('text')
     .eq('conversation_id', conversationId)
     .eq('direction', 'outbound')
-    .eq('text', promotionMessage)
-    .limit(1);
-  if (error) throw new Error(`Không thể kiểm tra lời chào sản phẩm: ${error.message}`);
-  return Boolean(data?.length);
+    .in('text', texts);
+  if (error) throw new Error(`Không thể kiểm tra tin nhắn đã gửi: ${error.message}`);
+  return new Set((data || []).map((message) => message.text));
 }
 
 export async function getProductContext(productId) {

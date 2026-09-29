@@ -2,23 +2,22 @@
 import OpenAI from 'openai';
 import { getSupabase } from './services/supabase.js';
 import { getAdReferral } from './services/ad-referral.js';
-import { getWeightSizeAdvice, WEIGHT_PATTERN } from './services/size-advice.js';
+import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim } from './services/welcome-claim.js';
 import {
   getOrCreateConversation,
   getOnlyActiveProduct,
-  getProductContext,
   getProductImages,
-  getProductSizeGuide,
-  getRecentConversationMessages,
-  hasSentProductIntroduction,
+  getSentConversationTexts,
   saveConversationMessage,
   updateConversationAd,
   updateConversationProduct
 } from './services/products.js';
 
-const PROMOTION_MESSAGE = '🌷 Mẫu này hôm nay bên em đang ưu đãi chỉ còn 289K + freeship ạ. Sang ngày mai shop sẽ trở lại giá cũ 450K chị nha 🥰';
-const MATERIAL_MESSAGE = 'Dạ mẫu này bên em là vải cotton lạnh, chất mềm mát, mặc thoải mái, co giãn nhẹ và ít nhăn chị nha. Form lên dáng đẹp, không bị bí nóng ạ.';
-const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị nhé.';
+const LEGACY_PROMOTION_MESSAGE = '🌷 Mẫu này hôm nay bên em đang ưu đãi chỉ còn 289K + freeship ạ. Sang ngày mai shop sẽ trở lại giá cũ 450K chị nha 🥰';
+const PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang giảm giá còn 289K + MIỄN PHÍ SHIP chị nha, ngày mai bên em về lại giá gốc 450K ạ 🥰  Vải cotton lạnh mềm mát, co giãn nhẹ, ít nhăn, mặc thoải mái không bí nóng. Form lên dáng đẹp, dễ mặc lắm chị ạ.';
+const SIZE_QUESTION = 'Chị cho em xin cân nặng và chiều cao để em chọn size chuẩn cho chị nhé ạ.';
+const FIRST_IMAGE_MARKER = '[Ảnh sản phẩm 1]';
+const SECOND_IMAGE_MARKER = '[Ảnh sản phẩm 2]';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {
@@ -199,14 +198,6 @@ async function getStoredTaskLogs() {
 
 let openai;
 
-const CUSTOMER_CONTEXT_TOOL = {
-  type: 'function',
-  name: 'get_customer_context',
-  description: 'Lấy sản phẩm đang tư vấn, bảng size và lịch sử hội thoại mới nhất từ Supabase trước khi trả lời khách.',
-  parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
-  strict: true
-};
-
 const fixedProductRules = [
   'Bạn là nhân viên tư vấn thời trang của shop, xưng "em" và gọi khách là "chị".',
   'Shop chỉ có một sản phẩm đang hoạt động trong Supabase. Luôn tư vấn SẢN PHẨM ĐANG TƯ VẤN, không hỏi khách đang quan tâm mẫu nào.',
@@ -252,39 +243,11 @@ async function generateOpenAIReply(receivedText, { productContext, history = [] 
   return reply;
 }
 
-async function sendMessengerAction(recipientId, action) {
-  const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
-  const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
-  if (!pageAccessToken || !recipientId) {
-    console.warn('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
-    return;
-  }
-
-  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
-  const sendRequest = (payload) => fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const response = await sendRequest({
-    recipient: { id: recipientId },
-    sender_action: action
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Facebook API ${response.status}: ${errorBody}`);
-  }
-  addTaskLog('Messenger', `Đã gửi ${action} cho khách ${recipientId}`);
-}
-
 async function sendMessengerMessage(recipientId, text, conversationId = null) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
   if (!pageAccessToken || !recipientId) {
-    console.warn('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
-    return;
+    throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
   }
 
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
@@ -309,129 +272,86 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
   }
 }
 
-async function sendMessengerImages(recipientId, images, conversationId = null) {
+async function sendMessengerImage(recipientId, image, conversationId, marker) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
-  const attachments = images.slice(0, 30).map((image) => ({
+  if (!pageAccessToken || !recipientId) {
+    throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
+  }
+  const attachment = {
     type: 'image',
     payload: image.facebook_attachment_id
       ? { attachment_id: image.facebook_attachment_id }
       : { url: image.image_url }
-  }));
-  if (!pageAccessToken || !recipientId || !attachments.length) return;
+  };
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       recipient: { id: recipientId },
-      message: attachments.length === 1
-        ? { attachment: attachments[0] }
-        : { attachments }
+      message: { attachment }
     })
   });
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Facebook API gửi album ảnh ${response.status}: ${errorBody}`);
+    throw new Error(`Facebook API gửi ảnh ${response.status}: ${errorBody}`);
   }
-  const attachmentIds = attachments.map((item) => item.payload.attachment_id).filter(Boolean);
-  const imageUrls = attachments.map((item) => item.payload.url).filter(Boolean);
-  addTaskLog('Messenger', `Đã gửi ${attachments.length} ảnh trong một tin cho khách ${recipientId}; attachment_id: ${attachmentIds.join(', ') || 'không có'}${imageUrls.length ? `; URL: ${imageUrls.join(', ')}` : ''}`);
-  if (conversationId) await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: `[Album ${attachments.length} ảnh sản phẩm]` });
+  await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: marker });
+  addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
 }
 
-async function replyWithOpenAI(recipientId, receivedText, conversationId = null) {
-  await sendMessengerAction(recipientId, 'typing_on');
-  const conversation = await getOrCreateConversation(recipientId);
-  const product = await getOnlyActiveProduct();
-  if (conversation.current_product_id !== product.id) {
-    await updateConversationProduct(conversation.id, product.id);
-  }
-  conversationId = conversation.id;
-  const productImages = await getProductImages(product.id);
-  const availableImages = productImages
-    .filter((item) => item.facebook_attachment_id || item.image_url)
-    .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0));
+async function sendWelcomeSequence(recipientId, conversation = null) {
+  conversation ||= await getOrCreateConversation(recipientId);
+  const alreadySent = await getSentConversationTexts(conversation.id, [LEGACY_PROMOTION_MESSAGE, SIZE_QUESTION]);
+  if (alreadySent.has(LEGACY_PROMOTION_MESSAGE) || alreadySent.has(SIZE_QUESTION)) return;
 
-  if (!await hasSentProductIntroduction(conversationId, PROMOTION_MESSAGE)) {
-    if (availableImages.length) {
-      await sendMessengerImages(recipientId, availableImages, conversationId);
-    } else {
-      addTaskLog('Product', `Sản phẩm ${product.id} chưa có ảnh để gửi`);
+  const claim = await acquireWelcomeClaim(recipientId);
+  if (!claim) return;
+  try {
+    const sent = await getSentConversationTexts(conversation.id, [
+      LEGACY_PROMOTION_MESSAGE,
+      FIRST_IMAGE_MARKER,
+      SECOND_IMAGE_MARKER,
+      PROMOTION_MESSAGE,
+      SIZE_QUESTION
+    ]);
+    if (sent.has(LEGACY_PROMOTION_MESSAGE) || sent.has(SIZE_QUESTION)) {
+      await completeWelcomeClaim(claim);
+      return;
     }
-    await sendMessengerMessage(recipientId, PROMOTION_MESSAGE, conversationId);
-    await sendMessengerMessage(recipientId, MATERIAL_MESSAGE, conversationId);
-    const firstSizeAdvice = WEIGHT_PATTERN.test(receivedText)
-      ? getWeightSizeAdvice(receivedText, await getProductSizeGuide(product.id))
-      : null;
-    await sendMessengerMessage(recipientId, firstSizeAdvice?.reply || SIZE_QUESTION, conversationId);
-    return;
+
+    const product = await getOnlyActiveProduct();
+    const images = (await getProductImages(product.id))
+      .filter((item) => item.facebook_attachment_id || item.image_url)
+      .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0));
+    const uniqueImages = [...new Map(images.map((item) => [item.facebook_attachment_id || item.image_url, item])).values()];
+    if (uniqueImages.length < 2) {
+      throw new Error(`Sản phẩm ${product.id} cần ít nhất 2 ảnh khác nhau để gửi cho khách.`);
+    }
+    if (conversation.current_product_id !== product.id) {
+      await updateConversationProduct(conversation.id, product.id);
+    }
+    if (!sent.has(FIRST_IMAGE_MARKER)) {
+      await sendMessengerImage(recipientId, uniqueImages[0], conversation.id, FIRST_IMAGE_MARKER);
+    }
+    if (!sent.has(SECOND_IMAGE_MARKER)) {
+      await sendMessengerImage(recipientId, uniqueImages[1], conversation.id, SECOND_IMAGE_MARKER);
+    }
+    if (!sent.has(PROMOTION_MESSAGE)) {
+      await sendMessengerMessage(recipientId, PROMOTION_MESSAGE, conversation.id);
+    }
+    await sendMessengerMessage(recipientId, SIZE_QUESTION, conversation.id);
+    await completeWelcomeClaim(claim);
+    addTaskLog('Auto-reply', `Đã gửi đủ 2 ảnh, ưu đãi và câu hỏi chiều cao/cân nặng cho khách ${recipientId}; bot dừng trả lời.`);
+  } catch (error) {
+    try {
+      await releaseWelcomeClaim(claim);
+    } catch (releaseError) {
+      addTaskLog('Supabase', releaseError.message);
+    }
+    throw error;
   }
-
-  const asksForImage = /(xem|gửi|cho|coi).{0,20}(hình|ảnh)|\b(hình|ảnh)\b/i.test(receivedText);
-  if (WEIGHT_PATTERN.test(receivedText)) {
-    const sizeAdvice = getWeightSizeAdvice(receivedText, await getProductSizeGuide(product.id));
-    await sendMessengerMessage(recipientId, sizeAdvice.reply, conversationId);
-    if (asksForImage && availableImages.length) await sendMessengerImages(recipientId, availableImages, conversationId);
-    return;
-  }
-  if (receivedText === '[Khách gửi ảnh hoặc tệp]') {
-    await sendMessengerMessage(recipientId, SIZE_QUESTION, conversationId);
-    return;
-  }
-
-  if (!process.env.OPENAI_API_KEY) throw new Error('Chưa cấu hình OPENAI_API_KEY.');
-  if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL || 'gpt-6-luna';
-  addTaskLog('OpenAI', `Gửi nội dung khách: "${receivedText.slice(0, 120)}"`);
-
-  const toolRequest = await openai.responses.create({
-    model,
-    instructions: 'Trước khi trả lời khách, gọi get_customer_context để lấy dữ liệu hiện tại từ Supabase.',
-    input: receivedText,
-    tools: [CUSTOMER_CONTEXT_TOOL],
-    tool_choice: { type: 'function', name: CUSTOMER_CONTEXT_TOOL.name },
-    parallel_tool_calls: false
-  });
-  const toolCall = toolRequest.output.find((item) => item.type === 'function_call' && item.name === CUSTOMER_CONTEXT_TOOL.name);
-  if (!toolCall) throw new Error('OpenAI không gọi được công cụ lấy dữ liệu khách.');
-
-  let productContext = null;
-  let history = [];
-  productContext = await getProductContext(product.id);
-  history = await getRecentConversationMessages(conversationId, 10);
-
-  const historyText = history.length
-    ? history.map((message) => `${message.direction === 'inbound' ? 'Khách' : 'Shop'}: ${message.text}`).join('\n')
-    : 'Chưa có lịch sử hội thoại.';
-  addTaskLog('Supabase', `Đã trả dữ liệu sản phẩm và lịch sử cho OpenAI; khách ${recipientId}`);
-  const finalResponse = await openai.responses.create({
-    model,
-    previous_response_id: toolRequest.id,
-    instructions: `${global.openaiSystemPrompt}\n\n${fixedProductRules}`,
-    input: [{
-      type: 'function_call_output',
-      call_id: toolCall.call_id,
-      output: JSON.stringify({
-        productContext: `${productContext}\nƯU ĐÃI HIỆN TẠI: Giá hôm nay 289K, freeship; ngày mai trở lại 450K. Chất liệu cotton lạnh, mềm mát, co giãn nhẹ, ít nhăn.`,
-        history: historyText
-      })
-    }],
-    tools: [CUSTOMER_CONTEXT_TOOL],
-    tool_choice: 'none'
-  });
-  const generatedReply = finalResponse.output_text?.trim();
-  if (!generatedReply) throw new Error('OpenAI không trả về nội dung trả lời.');
-  const reply = generatedReply;
-  addTaskLog('OpenAI', `Nhận câu trả lời: "${reply.slice(0, 160)}"`);
-
-  const delayMs = 500 + Math.floor(Math.random() * 1001);
-  addTaskLog('Auto-reply', `Chờ thêm ${delayMs}ms trước khi gửi câu trả lời`);
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
-
-  await sendMessengerMessage(recipientId, reply, conversationId);
-
-  if (asksForImage && availableImages.length) await sendMessengerImages(recipientId, availableImages, conversationId);
 }
 
 export default async function handler(req, res) {
@@ -590,13 +510,12 @@ export default async function handler(req, res) {
 
               // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
               if (autoReplyEnabled) {
-                // Không chặn phản hồi webhook; tin nhắn sẽ hiện trên web trước.
-                replyWithOpenAI(senderPsid, receivedText, conversation?.id || null)
-                  .then(() => console.log(`Đã trả lời khách hàng ${senderPsid} bằng OpenAI`))
-                  .catch((error) => {
-                    addTaskLog('Auto-reply', `Lỗi trả lời khách ${senderPsid}: ${error.message}`);
-                    console.error('Không thể tạo/gửi tin nhắn trả lời:', error);
-                  });
+                try {
+                  await sendWelcomeSequence(senderPsid, conversation);
+                } catch (error) {
+                  addTaskLog('Auto-reply', `Lỗi gửi lời chào cho khách ${senderPsid}: ${error.message}`);
+                  console.error('Không thể gửi lời chào:', error);
+                }
               } else {
                 addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
                 console.log('Tự động trả lời đang tắt.');
