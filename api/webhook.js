@@ -278,11 +278,11 @@ async function sendMessengerImage(recipientId, image, conversationId, marker) {
   if (!pageAccessToken || !recipientId) {
     throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
   }
+  const attachmentId = String(image.facebook_attachment_id || '').trim();
+  if (!attachmentId) throw new Error('Ảnh sản phẩm chưa có facebook_attachment_id.');
   const attachment = {
     type: 'image',
-    payload: image.facebook_attachment_id
-      ? { attachment_id: image.facebook_attachment_id }
-      : { url: image.image_url }
+    payload: { attachment_id: attachmentId }
   };
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
   const response = await fetch(apiUrl, {
@@ -323,11 +323,11 @@ async function sendWelcomeSequence(recipientId, conversation = null) {
 
     const product = await getOnlyActiveProduct();
     const images = (await getProductImages(product.id))
-      .filter((item) => item.facebook_attachment_id || item.image_url)
+      .filter((item) => String(item.facebook_attachment_id || '').trim())
       .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0));
-    const uniqueImages = [...new Map(images.map((item) => [item.facebook_attachment_id || item.image_url, item])).values()];
+    const uniqueImages = [...new Map(images.map((item) => [String(item.facebook_attachment_id).trim(), item])).values()];
     if (uniqueImages.length < 2) {
-      throw new Error(`Sản phẩm ${product.id} cần ít nhất 2 ảnh khác nhau để gửi cho khách.`);
+      throw new Error(`Sản phẩm ${product.id} cần ít nhất 2 facebook_attachment_id khác nhau để gửi cho khách.`);
     }
     if (conversation.current_product_id !== product.id) {
       await updateConversationProduct(conversation.id, product.id);

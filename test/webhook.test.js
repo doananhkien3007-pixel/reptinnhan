@@ -16,8 +16,8 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
     size_guide: 'Size M: 50-58kg',
     colors: ['Đen'],
     images: [
-      { image_url: 'https://example.com/secondary.jpg', sort_order: 1 },
-      { image_url: 'https://example.com/primary.jpg', is_primary: true, sort_order: 2 }
+      { image_url: 'https://example.com/secondary.jpg', facebook_attachment_id: 'secondary-attachment', sort_order: 1 },
+      { image_url: 'https://example.com/primary.jpg', facebook_attachment_id: 'primary-attachment', is_primary: true, sort_order: 2 }
     ]
   };
   let conversation = null;
@@ -37,7 +37,7 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
     if (url.hostname === 'graph.facebook.com') {
       const payload = JSON.parse(init.body);
       await new Promise((resolve) => setTimeout(resolve, 5));
-      if (failSecondImageOnce && payload.message?.attachment?.payload?.url === 'https://example.com/secondary.jpg') {
+      if (failSecondImageOnce && payload.message?.attachment?.payload?.attachment_id === 'secondary-attachment') {
         failSecondImageOnce = false;
         return json({ error: 'temporary image error' }, 500);
       }
@@ -144,16 +144,28 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
     assert.equal((await action('GET', 'auto_reply_status')).enabled, false);
     assert.equal((await action('POST', 'toggle_auto_reply')).enabled, true);
 
-    failSecondImageOnce = true;
     const originalError = console.error;
     const sendErrors = [];
+    console.error = (...args) => sendErrors.push(args);
+    product.images[0].facebook_attachment_id = '';
+    try {
+      await deliver('Chào shop');
+    } finally {
+      product.images[0].facebook_attachment_id = 'secondary-attachment';
+      console.error = originalError;
+    }
+    assert.equal(sentToMessenger.length, 0);
+    assert.equal(sendErrors.length, 1);
+    assert.match(sendErrors[0][1].message, /2 facebook_attachment_id/);
+
+    failSecondImageOnce = true;
     console.error = (...args) => sendErrors.push(args);
     try {
       await Promise.all([deliver('Chào shop'), deliver('Giá bao nhiêu?'), deliver('Chào shop')]);
     } finally {
       console.error = originalError;
     }
-    assert.equal(sendErrors.length, 1);
+    assert.equal(sendErrors.length, 2);
     assert.equal(sentToMessenger.length, 1);
     assert.equal(settings.has('bot_welcome:customer'), false);
 
@@ -161,8 +173,8 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
     assert.equal(sentToMessenger.length, 4);
     assert.equal(settings.get('bot_welcome:customer')?.value?.status, 'complete');
     const firstReplies = sentToMessenger.map((item) => item.message);
-    assert.equal(firstReplies[0].attachment.payload.url, 'https://example.com/primary.jpg');
-    assert.equal(firstReplies[1].attachment.payload.url, 'https://example.com/secondary.jpg');
+    assert.deepEqual(firstReplies[0].attachment.payload, { attachment_id: 'primary-attachment' });
+    assert.deepEqual(firstReplies[1].attachment.payload, { attachment_id: 'secondary-attachment' });
     assert.equal(firstReplies[0].attachments, undefined);
     assert.equal(firstReplies[1].attachments, undefined);
     assert.equal(firstReplies[2].text, '🌷 Dạ mẫu này bên em đang giảm giá còn 289K + MIỄN PHÍ SHIP chị nha, ngày mai bên em về lại giá gốc 450K ạ 🥰  Vải cotton lạnh mềm mát, co giãn nhẹ, ít nhăn, mặc thoải mái không bí nóng. Form lên dáng đẹp, dễ mặc lắm chị ạ.');
