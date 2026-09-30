@@ -2,6 +2,13 @@ import { requireSupabase } from './supabase.js';
 
 const LEASE_MS = 5 * 60 * 1000;
 
+export async function getWelcomeStatus(recipientId) {
+  const { data, error } = await requireSupabase().from('app_settings')
+    .select('value').eq('key', `bot_welcome:${recipientId}`).maybeSingle();
+  if (error) throw new Error(`Không thể đọc trạng thái lời chào: ${error.message}`);
+  return data?.value?.status || null;
+}
+
 export async function acquireWelcomeClaim(recipientId) {
   const supabase = requireSupabase();
   const key = `bot_welcome:${recipientId}`;
@@ -45,7 +52,8 @@ export async function completeWelcomeClaim(claim) {
 export async function releaseWelcomeClaim(claim) {
   const supabase = requireSupabase();
   const { error } = await supabase.from('app_settings')
-    .delete()
+    // Giữ trạng thái để lần sau gửi tiếp phần còn thiếu, không coi là khách cũ.
+    .update({ value: { status: 'retry' }, updated_at: new Date().toISOString() })
     .eq('key', claim.key)
     .eq('updated_at', claim.updatedAt);
   if (error) throw new Error(`Không thể giải phóng khoá lời chào: ${error.message}`);

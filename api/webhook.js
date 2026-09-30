@@ -2,16 +2,28 @@
 import { generateReply } from './services/ai-reply.js';
 import { getSupabase } from './services/supabase.js';
 import { getAdReferral } from './services/ad-referral.js';
+import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim, getWelcomeStatus } from './services/welcome-claim.js';
 import {
+  getActiveProduct,
   getOrCreateConversation,
   getOnlyActiveProduct,
   getProductImages,
   getProductContext,
   getRecentConversationMessages,
+  getSentConversationTexts,
   saveConversationMessage,
   updateConversationAd,
   updateConversationProduct
 } from './services/products.js';
+
+const WELCOME_IMAGE_MARKERS = ['[Ảnh sản phẩm 1]', '[Ảnh sản phẩm 2]'];
+
+function getPromotion(product) {
+  const price = Number(product.price);
+  if (!Number.isFinite(price) || price <= 0) throw new Error('Sản phẩm chưa có giá hợp lệ để giới thiệu ưu đãi.');
+  return `🌷 Dạ mẫu này bên em đang ưu đãi ${price.toLocaleString('vi-VN')}đ + MIỄN PHÍ SHIP chị nha.` +
+    (product.material ? ` Chất liệu ${product.material}.` : '') + ' Chị muốn em tư vấn màu hay size ạ?';
+}
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {
@@ -256,22 +268,46 @@ async function sendMessengerMedia(recipientId, media, conversationId, marker) {
   addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
 }
 
-async function replyToCustomer(recipientId, receivedText, conversation, history) {
-  let productId = conversation.current_product_id;
-  let productContext = productId ? await getProductContext(productId) : null;
-  if (!productContext) {
-    const product = await getOnlyActiveProduct();
-    productId = product.id;
-    productContext = await getProductContext(productId);
-    if (!productContext) throw new Error('Không thể đọc dữ liệu sản phẩm đang tư vấn.');
-    await updateConversationProduct(conversation.id, productId);
+async function welcomeNewCustomer(recipientId, conversation, history, images, promotion) {
+  const status = await getWelcomeStatus(recipientId);
+  if (status === 'complete' || (history.length && !status)) return false;
+  const claim = await acquireWelcomeClaim(recipientId);
+  if (!claim) return true; // Một webhook khác đang gửi lời chào cho khách này.
+  try {
+    if (images.length < 2) throw new Error('Cần ít nhất 2 ảnh có facebook_attachment_id để chào khách mới.');
+    const sent = await getSentConversationTexts(conversation.id, [...WELCOME_IMAGE_MARKERS, promotion]);
+    for (const [index, marker] of WELCOME_IMAGE_MARKERS.entries()) {
+      if (!sent.has(marker)) await sendMessengerMedia(recipientId, images[index], conversation.id, marker);
+    }
+    if (!sent.has(promotion)) await sendMessengerMessage(recipientId, promotion, conversation.id);
+    await completeWelcomeClaim(claim);
+    addTaskLog('Auto-reply', `Đã giới thiệu hình và ưu đãi cho khách mới ${recipientId}; tin tiếp theo sẽ tư vấn bằng AI.`);
+    return true;
+  } catch (error) {
+    await releaseWelcomeClaim(claim);
+    throw error;
   }
+}
+
+async function replyToCustomer(recipientId, receivedText, conversation, history) {
+  const product = (conversation.current_product_id && await getActiveProduct(conversation.current_product_id))
+    || await getOnlyActiveProduct();
+  const productId = product.id;
+  const productContext = await getProductContext(productId);
+  if (!productContext) throw new Error('Không thể đọc dữ liệu sản phẩm đang tư vấn.');
+  if (conversation.current_product_id !== productId) await updateConversationProduct(conversation.id, productId);
+  const promotion = getPromotion(product);
   const media = await getProductImages(productId);
   const availableMedia = [...new Map(media
     .filter((item) => String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()];
-  const result = await generateOpenAIReply(receivedText, { productContext, history, media: availableMedia });
+  if (await welcomeNewCustomer(recipientId, conversation, history,
+    availableMedia.filter((item) => item.media_type !== 'video'), promotion)) return;
+  const result = await generateOpenAIReply(receivedText, {
+    productContext: `${productContext}\n\nƯU ĐÃI HIỆN TẠI:\n${promotion}`,
+    history, media: availableMedia
+  });
   for (const attachmentId of result.media_ids) {
     const item = availableMedia.find((media) => String(media.facebook_attachment_id).trim() === attachmentId);
     const marker = `[${item.media_type === 'video' ? 'Video' : 'Ảnh'} sản phẩm ${attachmentId}${item.color ? `, màu ${item.color}` : ''}]`;

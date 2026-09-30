@@ -22,7 +22,7 @@ export async function listProducts({ includeInactive = true } = {}) {
 export async function getOnlyActiveProduct() {
   const supabase = requireSupabase();
   const { data, error } = await supabase.from('products')
-    .select('id, name, sku, images')
+    .select('id, name, sku, images, price, material')
     .eq('status', DEFAULT_PRODUCT_STATUS)
     .limit(2);
   if (error) throw new Error(`Không thể lấy sản phẩm đang bán: ${error.message}`);
@@ -42,7 +42,7 @@ export async function getSentConversationTexts(conversationId, texts) {
   return new Set((data || []).map((message) => message.text));
 }
 
-export async function getProductContext(productId) {
+export async function getActiveProduct(productId) {
   const supabase = requireSupabase();
   const { data: product, error: productError } = await supabase
     .from('products')
@@ -51,6 +51,11 @@ export async function getProductContext(productId) {
     .eq('status', DEFAULT_PRODUCT_STATUS)
     .maybeSingle();
   if (productError) throw new Error(`Không thể lấy product: ${productError.message}`);
+  return product;
+}
+
+export async function getProductContext(productId) {
+  const product = await getActiveProduct(productId);
   if (!product) return null;
 
   const colors = Array.isArray(product.colors) ? product.colors : [];

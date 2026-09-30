@@ -30,6 +30,7 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
   let aiStatus = 200;
   let responseStatus = 'completed';
   let failHistory = false;
+  let failAttachmentOnce = null;
   const originalFetch = globalThis.fetch;
   const json = (data, status = 200) => new Response(JSON.stringify(data), {
     status,
@@ -50,6 +51,10 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
     if (url.hostname === 'graph.facebook.com') {
       const payload = JSON.parse(init.body);
       await new Promise((resolve) => setTimeout(resolve, 5));
+      if (failAttachmentOnce && payload.message?.attachment?.payload?.attachment_id === failAttachmentOnce) {
+        failAttachmentOnce = null;
+        return json({ error: 'temporary image error' }, 500);
+      }
       sentToMessenger.push(payload);
       return json({ message_id: `mid-${sentToMessenger.length}` });
     }
@@ -161,10 +166,62 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
     aiStatus = 200;
     responseStatus = 'completed';
     failHistory = false;
+    failAttachmentOnce = null;
     settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } });
+    settings.set('bot_welcome:customer', { key: 'bot_welcome:customer', value: { status: 'complete' } });
     await run();
   });
   try {
+    await scenario('khách mới nhận hai ảnh rồi ưu đãi, tin sau mới gọi AI với đủ lịch sử', async () => {
+      settings.delete('bot_welcome:customer');
+      delete process.env.OPENAI_API_KEY;
+      try { await deliver('Chào shop'); } finally { process.env.OPENAI_API_KEY = 'test-openai-key'; }
+      assert.equal(aiRequests.length, 0);
+      assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || 'text'),
+        ['primary-attachment', 'secondary-attachment', 'text']);
+      assert.match(sentToMessenger[2].message.text, /289\.000đ \+ MIỄN PHÍ SHIP/);
+      assert.equal(settings.get('bot_welcome:customer').value.status, 'complete');
+      aiResult = { reply: 'Dạ chị 53kg phù hợp size M theo bảng của mẫu này ạ.', media_ids: [] };
+      await deliver('chị 53kg');
+      assert.equal(aiRequests.length, 1);
+      assert.equal(aiRequests[0].input[0].content, 'Chào shop');
+      assert.ok(aiRequests[0].input.some((message) => message.role === 'assistant' && /MIỄN PHÍ SHIP/.test(message.content)));
+      assert.equal(aiRequests[0].input.at(-1).content, 'chị 53kg');
+      assert.equal(sentToMessenger.length, 4);
+      assert.equal(sentToMessenger[3].message.text, aiResult.reply);
+    });
+
+    await scenario('khách cũ có lịch sử nhưng chưa có khóa chào vẫn đi thẳng vào AI', async () => {
+      settings.delete('bot_welcome:customer');
+      storedMessages.push({ conversation_id: conversation.id, direction: 'inbound', text: 'Chị 53kg' });
+      await deliver('cần địa chỉ không em');
+      assert.equal(aiRequests.length, 1);
+      assert.deepEqual(sentToMessenger.map((item) => item.message), [{ text: aiResult.reply }]);
+    });
+
+    await scenario('nhiều webhook khách mới đồng thời chỉ gửi một bộ ảnh và ưu đãi', async () => {
+      settings.delete('bot_welcome:customer');
+      await Promise.all([deliver('Chào shop'), deliver('Tư vấn giúp chị'), deliver('Giá sao em')]);
+      assert.equal(aiRequests.length, 0);
+      assert.equal(sentToMessenger.length, 3);
+      assert.equal(settings.get('bot_welcome:customer').value.status, 'complete');
+    });
+
+    await scenario('lời chào lỗi giữa chừng gửi tiếp phần thiếu, không lặp ảnh đã gửi', async () => {
+      settings.delete('bot_welcome:customer');
+      failAttachmentOnce = 'secondary-attachment';
+      await deliver('Chào shop');
+      assert.equal(sentToMessenger.length, 1);
+      assert.equal(settings.get('bot_welcome:customer').value.status, 'retry');
+      await deliver('gửi tiếp chị xem');
+      assert.equal(aiRequests.length, 0);
+      assert.equal(sentToMessenger.length, 3);
+      assert.equal(settings.get('bot_welcome:customer').value.status, 'complete');
+      await deliver('chị 53kg');
+      assert.equal(aiRequests.length, 1);
+      assert.equal(sentToMessenger.length, 4);
+    });
+
     await scenario('tắt bot thì không gọi AI hoặc gửi tin; vẫn lưu Ads ID', async () => {
       assert.equal((await action('GET', 'auto_reply_status')).enabled, true);
       assert.equal((await action('POST', 'toggle_auto_reply')).enabled, false);
@@ -179,7 +236,7 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
       assert.equal((await action('GET', 'auto_reply_status')).enabled, false);
     });
 
-    await scenario('tin đầu có cân nặng, địa chỉ, số điện thoại được đưa vào AI đúng một lần', async () => {
+    await scenario('khách đã nhận lời chào gửi cân nặng, địa chỉ, số điện thoại được đưa vào AI đúng một lần', async () => {
       const order = '53kg cafe nông vụ Quang Thạnh vĩnh thái vĩnh thịnh vĩnh thạnh bình định cũ 0900000000';
       aiResult = { reply: 'Dạ em đã nhận địa chỉ và số điện thoại; 53kg hợp size M theo bảng ạ. Chị muốn chọn màu nào trong mẫu này ạ?', media_ids: [] };
       await deliver(order);
