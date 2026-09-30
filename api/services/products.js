@@ -54,6 +54,8 @@ export async function getProductContext(productId) {
   if (!product) return null;
 
   const colors = Array.isArray(product.colors) ? product.colors : [];
+  const media = Array.isArray(product.images) ? product.images : [];
+  const hasSendableImages = media.some((item) => item.media_type !== 'video' && String(item.facebook_attachment_id || '').trim());
   return [
     'SẢN PHẨM ĐANG TƯ VẤN:',
     `Tên: ${product.name}`,
@@ -61,7 +63,7 @@ export async function getProductContext(productId) {
     `Chất liệu: ${product.material || 'Chưa cập nhật'}`,
     `Màu: ${colors.length ? colors.join(', ') : 'Chưa cập nhật'}`,
     `Size guide: ${product.size_guide || 'Chưa cập nhật'}`,
-    `Hình ảnh: ${Array.isArray(product.images) && product.images.length ? 'Có thể gửi cho khách' : 'Chưa có hình ảnh'}`
+    `Hình ảnh: ${hasSendableImages ? 'Có thể gửi cho khách' : 'Chưa có hình ảnh có thể gửi'}`
   ].join('\n');
 }
 
