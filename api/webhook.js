@@ -10,7 +10,8 @@ import {
   getSentConversationTexts,
   saveConversationMessage,
   updateConversationAd,
-  updateConversationProduct
+  updateConversationProduct,
+  getRecentConversationMessages
 } from './services/products.js';
 
 const LEGACY_PROMOTION_MESSAGE = '🌷 Mẫu này hôm nay bên em đang ưu đãi chỉ còn 289K + freeship ạ. Sang ngày mai shop sẽ trở lại giá cũ 450K chị nha 🥰';
@@ -304,10 +305,10 @@ async function sendMessengerImage(recipientId, image, conversationId, marker) {
 async function sendWelcomeSequence(recipientId, conversation = null) {
   conversation ||= await getOrCreateConversation(recipientId);
   const alreadySent = await getSentConversationTexts(conversation.id, [LEGACY_PROMOTION_MESSAGE, SIZE_QUESTION]);
-  if (alreadySent.has(LEGACY_PROMOTION_MESSAGE) || alreadySent.has(SIZE_QUESTION)) return;
+  if (alreadySent.has(LEGACY_PROMOTION_MESSAGE) || alreadySent.has(SIZE_QUESTION)) return false;
 
   const claim = await acquireWelcomeClaim(recipientId);
-  if (!claim) return;
+  if (!claim) return true;
   try {
     const sent = await getSentConversationTexts(conversation.id, [
       LEGACY_PROMOTION_MESSAGE,
@@ -318,7 +319,7 @@ async function sendWelcomeSequence(recipientId, conversation = null) {
     ]);
     if (sent.has(LEGACY_PROMOTION_MESSAGE) || sent.has(SIZE_QUESTION)) {
       await completeWelcomeClaim(claim);
-      return;
+      return false;
     }
 
     const product = await getOnlyActiveProduct();
@@ -344,6 +345,7 @@ async function sendWelcomeSequence(recipientId, conversation = null) {
     await sendMessengerMessage(recipientId, SIZE_QUESTION, conversation.id);
     await completeWelcomeClaim(claim);
     addTaskLog('Auto-reply', `Đã gửi đủ 2 ảnh, ưu đãi và câu hỏi chiều cao/cân nặng cho khách ${recipientId}; bot dừng trả lời.`);
+    return true;
   } catch (error) {
     try {
       await releaseWelcomeClaim(claim);
@@ -474,9 +476,9 @@ export default async function handler(req, res) {
                 addTaskLog('Supabase', error.message);
               }
             } else if (location) {
-              addTaskLog('Ads', `Khách ${senderPsid}: ${channel}.${location}, source ${source || 'không có'}, nhưng Meta không gửi ad_id`);
+              addTaskLog('Ads', `Khách ${senderPsid}: ${channel}.${location}, source ${source || 'không có'}, nhưng Meta không gửi ad_id. RAW: ${JSON.stringify(getAdReferral(webhookEvent).raw || {})}`);
             } else if (channel === 'messaging' && webhookEvent.message?.text) {
-              addTaskLog('Ads', `Khách ${senderPsid}: tin nhắn không có referral/ad_id trong payload Meta`);
+              addTaskLog('Ads', `Khách ${senderPsid}: tin nhắn không có referral. RAW MSG: ${JSON.stringify(webhookEvent.message).slice(0, 200)}`);
             }
 
             if (channel === 'standby') continue;
@@ -520,10 +522,19 @@ export default async function handler(req, res) {
               // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
               if (autoReplyEnabled) {
                 try {
-                  await sendWelcomeSequence(senderPsid, conversation);
+                  const wasWelcomeSent = await sendWelcomeSequence(senderPsid, conversation);
+                  if (!wasWelcomeSent && receivedText !== FIRST_IMAGE_MARKER && receivedText !== SECOND_IMAGE_MARKER && receivedText !== PROMOTION_MESSAGE && receivedText !== SIZE_QUESTION && receivedText !== LEGACY_PROMOTION_MESSAGE) {
+                    addTaskLog('Auto-reply', 'Chuyển tin nhắn cho AI xử lý...');
+                    const history = await getRecentConversationMessages(conversation.id);
+                    const product = await getOnlyActiveProduct();
+                    const productContext = product ? `SẢN PHẨM ĐANG TƯ VẤN:\n- Tên: ${product.name}\n- Giá: ${product.price}\n- Chất liệu: ${product.material}\n- Bảng size: ${product.size_guide}\n- Màu: ${product.colors?.join(', ') || 'Không rõ'}` : 'SẢN PHẨM ĐANG TƯ VẤN: Chưa xác định.';
+                    
+                    const reply = await generateOpenAIReply(receivedText, { productContext, history });
+                    await sendMessengerMessage(senderPsid, reply, conversation.id);
+                  }
                 } catch (error) {
-                  addTaskLog('Auto-reply', `Lỗi gửi lời chào cho khách ${senderPsid}: ${error.message}`);
-                  console.error('Không thể gửi lời chào:', error);
+                  addTaskLog('Auto-reply', `Lỗi xử lý cho khách ${senderPsid}: ${error.message}`);
+                  console.error('Lỗi xử lý auto-reply:', error);
                 }
               } else {
                 addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
