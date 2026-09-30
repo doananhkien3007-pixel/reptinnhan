@@ -272,16 +272,16 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
   }
 }
 
-async function sendMessengerImage(recipientId, image, conversationId, marker) {
+async function sendMessengerMedia(recipientId, media, conversationId, marker) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
   if (!pageAccessToken || !recipientId) {
     throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
   }
-  const attachmentId = String(image.facebook_attachment_id || '').trim();
-  if (!attachmentId) throw new Error('Ảnh sản phẩm chưa có facebook_attachment_id.');
+  const attachmentId = String(media.facebook_attachment_id || '').trim();
+  if (!attachmentId) throw new Error('Ảnh/video sản phẩm chưa có facebook_attachment_id.');
   const attachment = {
-    type: 'image',
+    type: media.media_type === 'video' ? 'video' : 'image',
     payload: { attachment_id: attachmentId }
   };
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
@@ -295,7 +295,7 @@ async function sendMessengerImage(recipientId, image, conversationId, marker) {
   });
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Facebook API gửi ảnh ${response.status}: ${errorBody}`);
+    throw new Error(`Facebook API gửi ${attachment.type} ${response.status}: ${errorBody}`);
   }
   await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: marker });
   addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
@@ -322,28 +322,42 @@ async function sendWelcomeSequence(recipientId, conversation = null) {
     }
 
     const product = await getOnlyActiveProduct();
-    const images = (await getProductImages(product.id))
+    const media = await getProductImages(product.id);
+    const images = media.filter((item) => !item.media_type || item.media_type === 'image')
       .filter((item) => String(item.facebook_attachment_id || '').trim())
       .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0));
     const uniqueImages = [...new Map(images.map((item) => [String(item.facebook_attachment_id).trim(), item])).values()];
     if (uniqueImages.length < 2) {
       throw new Error(`Sản phẩm ${product.id} cần ít nhất 2 facebook_attachment_id khác nhau để gửi cho khách.`);
     }
+    const videos = media.filter((item) => item.media_type === 'video')
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+    if (videos.some((item) => !String(item.facebook_attachment_id || '').trim())) {
+      throw new Error(`Video sản phẩm ${product.id} chưa có facebook_attachment_id.`);
+    }
+    const uniqueVideos = [...new Map(videos.map((item) => [String(item.facebook_attachment_id).trim(), item])).values()];
+    const videoMarker = (video) => `[Video sản phẩm ${String(video.facebook_attachment_id).trim()}]`;
+    const sentVideos = uniqueVideos.length
+      ? await getSentConversationTexts(conversation.id, uniqueVideos.map(videoMarker)) : new Set();
     if (conversation.current_product_id !== product.id) {
       await updateConversationProduct(conversation.id, product.id);
     }
     if (!sent.has(FIRST_IMAGE_MARKER)) {
-      await sendMessengerImage(recipientId, uniqueImages[0], conversation.id, FIRST_IMAGE_MARKER);
+      await sendMessengerMedia(recipientId, uniqueImages[0], conversation.id, FIRST_IMAGE_MARKER);
     }
     if (!sent.has(SECOND_IMAGE_MARKER)) {
-      await sendMessengerImage(recipientId, uniqueImages[1], conversation.id, SECOND_IMAGE_MARKER);
+      await sendMessengerMedia(recipientId, uniqueImages[1], conversation.id, SECOND_IMAGE_MARKER);
+    }
+    for (const video of uniqueVideos) {
+      const marker = videoMarker(video);
+      if (!sentVideos.has(marker)) await sendMessengerMedia(recipientId, video, conversation.id, marker);
     }
     if (!sent.has(PROMOTION_MESSAGE)) {
       await sendMessengerMessage(recipientId, PROMOTION_MESSAGE, conversation.id);
     }
     await sendMessengerMessage(recipientId, SIZE_QUESTION, conversation.id);
     await completeWelcomeClaim(claim);
-    addTaskLog('Auto-reply', `Đã gửi đủ 2 ảnh, ưu đãi và câu hỏi chiều cao/cân nặng cho khách ${recipientId}; bot dừng trả lời.`);
+    addTaskLog('Auto-reply', `Đã gửi đủ 2 ảnh, ${uniqueVideos.length} video, ưu đãi và câu hỏi chiều cao/cân nặng cho khách ${recipientId}; bot dừng trả lời.`);
   } catch (error) {
     try {
       await releaseWelcomeClaim(claim);

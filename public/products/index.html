@@ -35,6 +35,7 @@
     .variant-color { margin: 4px 0; }
     .images { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .images img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
+    .video-item { width: 180px; padding: 12px; box-sizing: border-box; border: 1px solid #e5e7eb; border-radius: 6px; overflow-wrap: anywhere; font-size: 12px; }
     .image-item { position: relative; display: inline-flex; flex-direction: column; gap: 2px; font-size: 10px; color: #6b7280; text-align: center; }
     .image-item.primary img { border: 2px solid #1877f2; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr auto; } }
@@ -58,6 +59,14 @@
 
       <h2 style="margin-top:20px">Màu sản phẩm</h2>
       <div id="variants"></div>
+      <h2 style="margin-top:20px">Video sản phẩm</h2>
+      <p class="muted">Chọn video MP4 tối đa 4MB. Video được tải lên Facebook và gửi cho khách sau 2 ảnh.</p>
+      <label>Chọn video<input id="product-video-files" type="file" accept="video/mp4,.mp4" multiple></label>
+      <div class="actions">
+        <button type="button" id="upload-product-videos" class="secondary" disabled>Upload video</button>
+        <span id="product-video-status" class="muted">Lưu sản phẩm để upload video.</span>
+      </div>
+      <div id="product-videos" class="images"></div>
       <div class="actions">
         <button type="button" id="add-variant" class="secondary">+ Thêm màu</button>
         <button type="submit">Lưu sản phẩm</button>
@@ -71,6 +80,8 @@
   <script>
     let products = [];
     let editingId = null;
+    let uploading = false;
+    const completedUploads = new WeakMap();
 
     const $ = (id) => document.getElementById(id);
     const setStatus = (message, error = false) => {
@@ -91,7 +102,7 @@
           <input class="color-image-files" type="file" accept="image/*" multiple>
           <label style="flex-direction:row; align-items:center; gap:5px; font-weight:normal;"><input class="color-image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
           <button type="button" class="secondary upload-color-images">Upload ảnh màu này</button>
-          <span class="muted color-upload-status">Lưu sản phẩm trước rồi upload ảnh.</span>
+          <span class="muted color-upload-status">${editingId ? 'Chọn ảnh để upload thêm cho màu này.' : 'Lưu sản phẩm trước rồi upload ảnh.'}</span>
         </div>`;
       row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
       row.querySelector('.upload-color-images').addEventListener('click', () => uploadImagesForColor(row));
@@ -112,15 +123,21 @@
     }
 
     function clearForm() {
+      if (uploading) return;
       editingId = null;
       $('product-form').reset();
       $('form-title').textContent = 'Thêm sản phẩm';
       $('cancel-edit').hidden = true;
       $('variants').innerHTML = '';
+      $('product-video-files').value = '';
+      $('upload-product-videos').disabled = true;
+      $('product-video-status').textContent = 'Lưu sản phẩm để upload video.';
+      $('product-videos').innerHTML = '';
       addVariantRow();
     }
 
     function editProduct(product) {
+      if (uploading) { setStatus('Đợi upload hoàn tất trước khi đổi sản phẩm.', true); return; }
       editingId = product.id;
       $('form-title').textContent = `Sửa sản phẩm: ${product.name}`;
       for (const [id, value] of Object.entries({ name: product.name, price: product.price, material: product.material, 'size-guide': product.size_guide })) $(id).value = value || '';
@@ -128,7 +145,18 @@
       (product.variants || []).forEach(addVariantRow);
       if (!product.variants?.length) addVariantRow();
       $('cancel-edit').hidden = false;
+      $('product-video-files').value = '';
+      $('upload-product-videos').disabled = false;
+      $('product-video-status').textContent = 'Có thể upload thêm video ngay cho sản phẩm này.';
+      renderProductVideos(product);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderProductVideos(product) {
+      const videos = (product?.images || []).filter((item) => item.media_type === 'video');
+      $('product-videos').innerHTML = videos.length
+        ? videos.map((video) => `<div class="video-item">Video đã lưu trên Facebook<br><span class="muted">ID: ${escapeHtml(video.facebook_attachment_id)}</span></div>`).join('')
+        : '<span class="muted">Sản phẩm chưa có video.</span>';
     }
 
     function renderProducts() {
@@ -136,7 +164,7 @@
         const colors = [...new Set((product.variants || []).map((variant) => variant.color).filter(Boolean))];
         return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">Giá: ${Number(product.price).toLocaleString('vi-VN')}đ · Chất liệu: ${escapeHtml(product.material || 'Chưa cập nhật')}</div></div></div>
           <div class="variants">${colors.map((color) => `<div class="variant-color"><b>${escapeHtml(color)}</b></div>`).join('') || '<span class="muted">Chưa có màu</span>'}</div>
-          <div class="images">${(product.images || []).map((image) => `<div class="image-item ${image.is_primary ? 'primary' : ''}"><img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}"><span>${image.is_primary ? 'Ảnh chính' : 'Ảnh phụ'}</span></div>`).join('')}</div>
+          <div class="images">${(product.images || []).map((image) => `<div class="image-item ${image.is_primary ? 'primary' : ''}">${image.media_type === 'video' ? `<div class="video-item">Video đã lưu trên Facebook<br><span class="muted">ID: ${escapeHtml(image.facebook_attachment_id)}</span></div>` : `<img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}">`}<span>${image.media_type === 'video' ? 'Video' : image.is_primary ? 'Ảnh chính' : 'Ảnh phụ'}</span></div>`).join('')}</div>
           <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
       }).join('') : '<p class="muted">Chưa có sản phẩm.</p>';
       document.querySelectorAll('[data-edit]').forEach((button) => button.addEventListener('click', () => editProduct(products.find((p) => p.id === Number(button.dataset.edit)))));
@@ -154,6 +182,7 @@
 
     async function saveProduct(event) {
       event.preventDefault();
+      if (uploading) { setStatus('Đợi upload hoàn tất trước khi lưu sản phẩm.', true); return; }
       try {
         const colorRows = [...document.querySelectorAll('.variant-row')];
         const response = await fetch(`/api/products?action=${editingId ? 'update' : 'create'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, product: readProductForm(), variants: readVariants() }) });
@@ -161,11 +190,14 @@
         if (!response.ok) throw new Error(data.error || 'Không thể lưu sản phẩm.');
         const productId = Number(data.id);
         editingId = productId;
+        $('upload-product-videos').disabled = false;
         const rowsWithImages = colorRows.filter((row) => row.querySelector('.color-image-files').files.length);
         for (const row of rowsWithImages) {
-          if (!await uploadImagesForColor(row, productId, false)) throw new Error('Lưu sản phẩm được nhưng upload hình thất bại.');
+          if (!await uploadImagesForColor(row, productId, false)) throw new Error('Lưu sản phẩm được nhưng upload ảnh/video thất bại.');
         }
-        setStatus(rowsWithImages.length ? 'Đã lưu sản phẩm và hình ảnh.' : 'Đã lưu sản phẩm.');
+        const hasVideos = $('product-video-files').files.length > 0;
+        if (hasVideos && !await uploadProductVideos(productId, false)) throw new Error('Đã lưu sản phẩm nhưng upload video thất bại.');
+        setStatus(rowsWithImages.length || hasVideos ? 'Đã lưu sản phẩm và ảnh/video.' : 'Đã lưu sản phẩm.');
         clearForm();
         await loadProducts();
       } catch (error) { setStatus(error.message, true); }
@@ -188,13 +220,19 @@
       const files = [...row.querySelector('.color-image-files').files];
       const status = row.querySelector('.color-upload-status');
       const isPrimary = row.querySelector('.color-image-primary').checked;
-      if (!productId || !color || !files.length) { status.textContent = 'Hãy lưu sản phẩm, nhập màu và chọn hình ảnh.'; return; }
+      const firstImageIndex = files.findIndex((file) => file.type.startsWith('image/'));
+      if (uploading) { status.textContent = 'Đang upload, vui lòng đợi hoàn tất.'; return false; }
+      if (!productId || !color || !files.length) { status.textContent = 'Hãy lưu sản phẩm, nhập màu và chọn ảnh/video.'; return false; }
+      uploading = true;
       try {
         for (const [index, file] of files.entries()) {
+          if (completedUploads.get(file) === productId) continue;
           status.textContent = `Đang upload ${index + 1}/${files.length}...`;
-          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), is_primary: index === 0 && isPrimary, sort_order: index }) });
+          if (!file.type.startsWith('image/')) throw new Error('Chọn ảnh ở mục này; video có mục upload riêng bên dưới.');
+          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), is_primary: index === firstImageIndex && isPrimary, sort_order: index }) });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Upload thất bại.');
+          completedUploads.set(file, productId);
         }
         status.textContent = 'Upload thành công.';
         row.querySelector('.color-image-files').value = '';
@@ -202,11 +240,52 @@
         if (refresh) await loadProducts();
         return true;
       } catch (error) { status.textContent = error.message; return false; }
+      finally { uploading = false; }
+    }
+
+    async function uploadProductVideos(productId = editingId, refresh = true) {
+      const status = $('product-video-status');
+      const files = [...$('product-video-files').files];
+      if (uploading) { status.textContent = 'Đang upload, vui lòng đợi hoàn tất.'; return false; }
+      if (!productId || !files.length) { status.textContent = 'Hãy lưu sản phẩm và chọn video trước khi upload.'; return false; }
+      uploading = true;
+      $('upload-product-videos').disabled = true;
+      try {
+        for (const [index, file] of files.entries()) {
+          if (completedUploads.get(file) === productId) continue;
+          if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name)) throw new Error('Chỉ hỗ trợ video MP4.');
+          await uploadVideo(file, productId, '', index, status);
+          completedUploads.set(file, productId);
+        }
+        $('product-video-files').value = '';
+        status.textContent = 'Đã upload video lên Facebook.';
+        if (refresh) {
+          await loadProducts();
+          renderProductVideos(products.find((product) => product.id === productId));
+        }
+        return true;
+      } catch (error) { status.textContent = error.message; return false; }
+      finally { uploading = false; $('upload-product-videos').disabled = !editingId; }
+    }
+
+    async function uploadVideo(file, productId, color, sortOrder, status) {
+      if (!file.size || file.size > 4 * 1024 * 1024) throw new Error('Video MP4 phải có dung lượng từ 1 byte đến 4MB.');
+      status.textContent = `Đang tải video ${file.name} lên Facebook...`;
+      const query = new URLSearchParams({
+        action: 'upload_video', product_id: String(productId), color, sort_order: String(sortOrder)
+      });
+      const response = await fetch(`/api/products?${query}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || (response.status === 413 ? 'Video vượt quá giới hạn upload. Hãy chọn file tối đa 4MB.' : 'Không thể upload video lên Facebook. Hãy thử lại.'));
+      return data;
     }
 
     $('product-form').addEventListener('submit', saveProduct);
     $('add-variant').addEventListener('click', () => addVariantRow());
     $('cancel-edit').addEventListener('click', clearForm);
+    $('upload-product-videos').addEventListener('click', () => uploadProductVideos());
     clearForm();
     loadProducts().catch((error) => setStatus(error.message, true));
   </script>

@@ -25,6 +25,7 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
   const storedMessages = [];
   const sentToMessenger = [];
   let failSecondImageOnce = false;
+  let failVideoOnce = false;
   const originalFetch = globalThis.fetch;
   const json = (data, status = 200) => new Response(JSON.stringify(data), {
     status,
@@ -37,6 +38,10 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
     if (url.hostname === 'graph.facebook.com') {
       const payload = JSON.parse(init.body);
       await new Promise((resolve) => setTimeout(resolve, 5));
+      if (failVideoOnce && payload.message?.attachment?.payload?.attachment_id === 'video-2') {
+        failVideoOnce = false;
+        return json({ error: 'temporary video error' }, 500);
+      }
       if (failSecondImageOnce && payload.message?.attachment?.payload?.attachment_id === 'secondary-attachment') {
         failSecondImageOnce = false;
         return json({ error: 'temporary image error' }, 500);
@@ -192,6 +197,44 @@ test('bot gửi hai ảnh riêng, lời chào và câu hỏi rồi dừng', asyn
     const messages = await action('GET', 'get_messages');
     assert.equal(messages.find((message) => message.text === 'Tôi muốn xem mẫu quảng cáo').adId, '123456789');
     assert.equal(messages.find((message) => message.text === 'Tin nhắn cũ').adId, '123456789');
+
+    // A new conversation with videos must still have two real images.
+    await action('POST', 'toggle_auto_reply');
+    storedMessages.length = 0;
+    sentToMessenger.length = 0;
+    settings.delete('bot_welcome:customer');
+    product.images.push(
+      { media_type: 'video', facebook_attachment_id: 'video-1', sort_order: 0 },
+      { media_type: 'video', facebook_attachment_id: 'video-2', sort_order: 1 }
+    );
+    console.error = (...args) => sendErrors.push(args);
+    try {
+      product.images[0].facebook_attachment_id = '';
+      await deliver('Chào shop');
+      assert.equal(sentToMessenger.length, 0);
+      assert.match(sendErrors.at(-1)[1].message, /2 facebook_attachment_id/);
+      product.images[0].facebook_attachment_id = 'secondary-attachment';
+      product.images[2].facebook_attachment_id = '';
+      await deliver('Chào shop');
+      assert.equal(sentToMessenger.length, 0);
+      assert.match(sendErrors.at(-1)[1].message, /Video.*facebook_attachment_id/);
+      product.images[2].facebook_attachment_id = 'video-1';
+      failVideoOnce = true;
+      await deliver('Chào shop');
+      assert.equal(sentToMessenger.length, 3);
+      assert.equal(settings.has('bot_welcome:customer'), false);
+      // Retry skips both images and the first video, then finishes in order.
+      await Promise.all([deliver('Gửi tiếp'), deliver('Gửi tiếp')]);
+      assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.type || 'text'),
+        ['image', 'image', 'video', 'video', 'text', 'text']);
+      assert.deepEqual(sentToMessenger[2].message.attachment.payload, { attachment_id: 'video-1' });
+      assert.deepEqual(sentToMessenger[3].message.attachment.payload, { attachment_id: 'video-2' });
+      assert.equal(settings.get('bot_welcome:customer')?.value?.status, 'complete');
+      await deliver('Chào shop');
+      assert.equal(sentToMessenger.length, 6);
+    } finally {
+      console.error = originalError;
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

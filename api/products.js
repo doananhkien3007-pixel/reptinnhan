@@ -26,7 +26,53 @@ async function ensureImageBucket(supabase) {
   }
 }
 
-async function uploadAttachmentToFacebook(imageUrl) {
+// Leave room below Vercel's 4.5 MB request limit; video requests contain raw bytes.
+const MAX_VIDEO_BYTES = 4 * 1024 * 1024;
+
+async function readVideoBytes(req) {
+  if (String(req.headers?.['content-type'] || '').split(';')[0] !== 'application/octet-stream') {
+    throw new Error('Upload video phải gửi dữ liệu file trực tiếp.');
+  }
+  let buffer;
+  if (Buffer.isBuffer(req.body)) {
+    buffer = req.body;
+  } else if (req.body === undefined && req[Symbol.asyncIterator]) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += bytes.length;
+      if (size > MAX_VIDEO_BYTES) throw new Error('Video vượt quá 4MB.');
+      chunks.push(bytes);
+    }
+    buffer = Buffer.concat(chunks);
+  } else {
+    throw new Error('Dữ liệu video không hợp lệ.');
+  }
+  if (!buffer.length || buffer.length > MAX_VIDEO_BYTES) throw new Error('Video phải có dung lượng từ 1 byte đến 4MB.');
+  // ISO BMFF files identify their container in the opening ftyp box.
+  if (buffer.length < 12 || buffer.toString('ascii', 4, 8) !== 'ftyp') throw new Error('Hãy chọn file video MP4 hợp lệ.');
+  return buffer;
+}
+
+async function uploadVideoToFacebook(buffer) {
+  const token = process.env.PAGE_ACCESS_TOKEN;
+  if (!token) throw new Error('Thiếu PAGE_ACCESS_TOKEN để upload video lên Facebook.');
+  const version = process.env.GRAPH_API_VERSION || 'v26.0';
+  const form = new FormData();
+  form.append('message', JSON.stringify({ attachment: { type: 'video', payload: { is_reusable: true } } }));
+  form.append('filedata', new Blob([buffer], { type: 'video/mp4' }), 'video.mp4');
+  const response = await fetch(`https://graph.facebook.com/${version}/me/message_attachments`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.attachment_id) {
+    throw new Error(`Facebook không cấp attachment_id cho video (${response.status}): ${result.error?.message || 'Phản hồi không hợp lệ'}`);
+  }
+  return String(result.attachment_id);
+}
+
+async function uploadAttachmentToFacebook(mediaUrl, type = 'image') {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
   if (!pageAccessToken) throw new Error('Thiếu PAGE_ACCESS_TOKEN để upload attachment lên Facebook.');
@@ -38,8 +84,8 @@ async function uploadAttachmentToFacebook(imageUrl) {
     body: JSON.stringify({
       message: {
         attachment: {
-          type: 'image',
-          payload: { url: imageUrl, is_reusable: true }
+          type,
+          payload: { url: mediaUrl, is_reusable: true }
         }
       }
     })
@@ -110,6 +156,33 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (req.method === 'POST' && action === 'upload_video') {
+      const productId = Number(req.query.product_id);
+      if (!Number.isInteger(productId) || productId <= 0) throw new Error('Thiếu product_id hợp lệ.');
+      const buffer = await readVideoBytes(req);
+      const { data: products, error: productError } = await supabase.from('products')
+        .select('images').eq('id', productId).limit(1);
+      if (productError) throw new Error(`Không thể lấy sản phẩm: ${productError.message}`);
+      const product = products?.[0];
+      if (!product) throw new Error('Không tìm thấy sản phẩm để lưu video.');
+      const images = Array.isArray(product.images) ? product.images : [];
+      // Stable ID makes retrying the same file safe after a lost HTTP response.
+      const id = `video-${crypto.createHash('sha256').update(buffer).digest('hex')}`;
+      const existing = images.find((item) => item.media_type === 'video' && item.id === id && item.facebook_attachment_id);
+      if (existing) return res.status(200).json(existing);
+      const facebookAttachmentId = await uploadVideoToFacebook(buffer);
+      // The file exists only in memory while forwarding it to Facebook.
+      const video = {
+        id, media_type: 'video', facebook_attachment_id: facebookAttachmentId,
+        color: String(req.query.color || '').trim(), sort_order: Number(req.query.sort_order || 0)
+      };
+      const { error } = await supabase.from('products').update({
+        images: [...images, video], updated_at: new Date().toISOString()
+      }).eq('id', productId);
+      if (error) throw new Error(`Không thể lưu attachment_id video: ${error.message}`);
+      return res.status(200).json(video);
+    }
+
     if (req.method === 'POST' && action === 'upload_image') {
       const productId = Number(req.body?.product_id);
       const dataUrl = String(req.body?.data || '');
@@ -118,6 +191,7 @@ export default async function handler(req, res) {
       if (!match) throw new Error('Định dạng ảnh không hợp lệ.');
 
       const contentType = match[1];
+      if (!contentType.startsWith('image/')) throw new Error('Chức năng này chỉ nhận ảnh; hãy dùng upload video cho MP4.');
       const buffer = Buffer.from(match[2], 'base64');
       if (buffer.length > 8 * 1024 * 1024) throw new Error('Ảnh vượt quá 8MB.');
       await ensureImageBucket(supabase);
