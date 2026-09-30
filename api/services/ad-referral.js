@@ -1,11 +1,17 @@
-function findAdIdRecursively(obj) {
+function findAdIdRecursively(obj, depth = 0) {
+  if (depth > 10) return null; // Prevent infinite loops
   if (!obj || typeof obj !== 'object') return null;
-  if (obj.ad_id) return obj.ad_id;
-  if (obj.ads_context_data?.ad_id) return obj.ads_context_data.ad_id;
   
-  for (const key of Object.keys(obj)) {
-    const found = findAdIdRecursively(obj[key]);
-    if (found) return found;
+  try {
+    if (obj.ad_id) return obj.ad_id;
+    if (obj.ads_context_data?.ad_id) return obj.ads_context_data.ad_id;
+    
+    for (const key of Object.keys(obj)) {
+      const found = findAdIdRecursively(obj[key], depth + 1);
+      if (found) return found;
+    }
+  } catch (err) {
+    // ignore
   }
   return null;
 }

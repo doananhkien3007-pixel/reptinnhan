@@ -476,9 +476,9 @@ export default async function handler(req, res) {
                 addTaskLog('Supabase', error.message);
               }
             } else if (location) {
-              addTaskLog('Ads', `Khách ${senderPsid}: ${channel}.${location}, source ${source || 'không có'}, nhưng Meta không gửi ad_id. RAW: ${JSON.stringify(getAdReferral(webhookEvent).raw || {})}`);
+              addTaskLog('Ads', `Khách ${senderPsid}: ${channel}.${location}, source ${source || 'không có'}, nhưng Meta không gửi ad_id`);
             } else if (channel === 'messaging' && webhookEvent.message?.text) {
-              addTaskLog('Ads', `Khách ${senderPsid}: tin nhắn không có referral. RAW MSG: ${JSON.stringify(webhookEvent.message).slice(0, 200)}`);
+              addTaskLog('Ads', `Khách ${senderPsid}: tin nhắn không có referral/ad_id trong payload Meta`);
             }
 
             if (channel === 'standby') continue;
