@@ -493,26 +493,17 @@ export default async function handler(req, res) {
                 timeZone: 'Asia/Ho_Chi_Minh',
                 hour12: false
               });
-              
-              try {
-                conversation ||= await getOrCreateConversation(senderPsid);
-              } catch (error) {
-                addTaskLog('Supabase', error.message);
-              }
-
               global.messages.push({
                 senderId: senderPsid,
                 adId: adId || conversation?.ad_id || null,
                 text: receivedText,
                 time: currentTime
               });
-              
-              if (conversation) {
-                try {
-                  await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
-                } catch (error) {
-                  addTaskLog('Supabase', error.message);
-                }
+              try {
+                conversation ||= await getOrCreateConversation(senderPsid);
+                await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
+              } catch (error) {
+                addTaskLog('Supabase', error.message);
               }
 
               console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
