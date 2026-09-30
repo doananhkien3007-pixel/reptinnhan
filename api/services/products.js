@@ -1,6 +1,28 @@
 import { requireSupabase } from './supabase.js';
+import { normalizeText } from './product-introduction.js';
 
 const DEFAULT_PRODUCT_STATUS = 'active';
+
+export async function getMainProduct() {
+  const { data, error } = await requireSupabase().from('products').select('*').eq('status', DEFAULT_PRODUCT_STATUS);
+  if (error) throw new Error(`Không thể đọc sản phẩm chính: ${error.message}`);
+  const matches = (data || []).filter((product) => normalizeText(product.name) === 'vay hoa thiet ke');
+  if (matches.length !== 1) throw new Error('Cần đúng một sản phẩm đang hoạt động tên Váy hoa thiết kế trong Supabase.');
+  return matches[0];
+}
+
+export async function getAllSentTexts(senderId) {
+  const texts = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await requireSupabase().from('messenger_messages').select('text')
+      .eq('sender_id', senderId).eq('direction', 'outbound')
+      .order('created_at', { ascending: true }).order('id', { ascending: true }).range(offset, offset + pageSize - 1);
+    if (error) throw new Error(`Không thể kiểm tra lịch sử tư vấn: ${error.message}`);
+    texts.push(...(data || []).map((message) => message.text || ''));
+    if (!data || data.length < pageSize) return texts;
+  }
+}
 
 export async function listProducts({ includeInactive = true } = {}) {
   const supabase = requireSupabase();

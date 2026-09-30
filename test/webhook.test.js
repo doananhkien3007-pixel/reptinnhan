@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', async (t) => {
+test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SECRET_KEY = 'test-secret';
   process.env.PAGE_ACCESS_TOKEN = 'test-page-token';
@@ -10,7 +10,7 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
   const product = {
     id: 7,
     sku: 'VAY-7',
-    name: 'Váy cotton lạnh',
+    name: 'Váy hoa thiết kế',
     status: 'active',
     price: 289000,
     material: 'Cotton lạnh',
@@ -30,6 +30,7 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
   let aiStatus = 200;
   let responseStatus = 'completed';
   let failHistory = false;
+  let missingMainProduct = false;
   let failAttachmentOnce = null;
   const originalFetch = globalThis.fetch;
   const json = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -98,7 +99,7 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
       const select = url.searchParams.get('select');
       if (select === 'images') return json([{ images: product.images }]);
       if (select === 'name,size_guide') return json(single ? product : [product]);
-      return json(single ? product : [product]);
+      return json(single ? product : missingMainProduct ? [{ ...product, name: 'Váy khác' }] : [product]);
     }
     if (table === 'messenger_messages') {
       if (method === 'POST') {
@@ -112,9 +113,11 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
         })));
       }
       if (url.searchParams.get('select') === 'text') {
-        return json(storedMessages.filter((message) =>
-          message.conversation_id === conversation?.id && message.direction === 'outbound'
-        ).map((message) => ({ text: message.text })));
+        if (failHistory) return json({ message: 'history unavailable' }, 500);
+        const offset = Number(url.searchParams.get('offset') || 0);
+        const limit = Number(url.searchParams.get('limit') || 500);
+        return json(storedMessages.filter((message) => message.sender_id === 'customer' && message.direction === 'outbound')
+          .slice(offset, offset + limit).map((message) => ({ text: message.text })));
       }
       if (url.searchParams.get('select') === 'direction,text,created_at') {
         if (failHistory) return json({ message: 'history unavailable' }, 500);
@@ -157,200 +160,117 @@ test('bot trả lời bằng AI theo nội dung và lịch sử hội thoại', 
   const originalError = console.error;
   const errors = [];
   console.error = (...args) => errors.push(args);
+  const seed = (text) => storedMessages.push({ sender_id: 'customer', conversation_id: 11, direction: 'outbound', text });
   const scenario = async (name, run) => t.test(name, async () => {
     storedMessages.length = 0;
     sentToMessenger.length = 0;
     aiRequests.length = 0;
     errors.length = 0;
-    aiResult = { reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
-    aiStatus = 200;
-    responseStatus = 'completed';
+    settings.clear();
+    conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: 7 };
     failHistory = false;
+    missingMainProduct = false;
     failAttachmentOnce = null;
     settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } });
-    settings.set('bot_welcome:customer', { key: 'bot_welcome:customer', value: { status: 'complete' } });
     await run();
   });
   try {
-    await scenario('khách mới nhận hai ảnh rồi ưu đãi, tin sau mới gọi AI với đủ lịch sử', async () => {
-      settings.delete('bot_welcome:customer');
+    await scenario('khách mới nhận ảnh, thông tin, câu hỏi size rồi im lặng dù khách nhắn tiếp', async () => {
       delete process.env.OPENAI_API_KEY;
-      try { await deliver('Chào shop'); } finally { process.env.OPENAI_API_KEY = 'test-openai-key'; }
+      try {
+        await deliver('Chào shop');
+        assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || 'text'),
+          ['primary-attachment', 'secondary-attachment', 'text', 'text']);
+        assert.match(sentToMessenger[2].message.text, /Váy hoa thiết kế.*289\.000đ.*MIỄN PHÍ SHIP.*Cotton lạnh/);
+        assert.match(sentToMessenger[3].message.text, /cân nặng và chiều cao/);
+        await deliver('chị 53kg cao 1m60');
+        await deliver('giá bao nhiêu');
+        assert.equal(sentToMessenger.length, 4);
+        assert.equal(aiRequests.length, 0);
+      } finally { process.env.OPENAI_API_KEY = 'test-openai-key'; }
+    });
+    await scenario('khóa chào cũ complete nhưng chưa hỏi size vẫn bổ sung đúng câu hỏi', async () => {
+      settings.set('bot_welcome:customer', { key: 'bot_welcome:customer', value: { status: 'complete' } });
+      seed('[Ảnh sản phẩm 1]');
+      seed('[Ảnh sản phẩm 2]');
+      seed('Mẫu này đang ưu đãi 289K + MIỄN PHÍ SHIP, vải cotton lạnh mềm mát.');
+      await deliver('chị muốn mua');
+      assert.equal(sentToMessenger.length, 1);
+      assert.match(sentToMessenger[0].message.text, /cân nặng và chiều cao/);
+      await deliver('53kg');
+      assert.equal(sentToMessenger.length, 1);
+    });
+    await scenario('đã tư vấn đầy đủ trong lịch sử cũ thì không gửi thêm', async () => {
+      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('Giá 289.000đ miễn phí ship, chất vải Cotton lạnh');
+      seed('Chị cho em xin cân nặng và chiều cao nhé');
+      await deliver('cảm ơn');
+      assert.equal(sentToMessenger.length, 0);
       assert.equal(aiRequests.length, 0);
-      assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || 'text'),
-        ['primary-attachment', 'secondary-attachment', 'text']);
-      assert.match(sentToMessenger[2].message.text, /289\.000đ \+ MIỄN PHÍ SHIP/);
-      assert.equal(settings.get('bot_welcome:customer').value.status, 'complete');
-      aiResult = { reply: 'Dạ chị 53kg phù hợp size M theo bảng của mẫu này ạ.', media_ids: [] };
-      await deliver('chị 53kg');
-      assert.equal(aiRequests.length, 1);
-      assert.equal(aiRequests[0].input[0].content, 'Chào shop');
-      assert.ok(aiRequests[0].input.some((message) => message.role === 'assistant' && /MIỄN PHÍ SHIP/.test(message.content)));
-      assert.equal(aiRequests[0].input.at(-1).content, 'chị 53kg');
+    });
+    await scenario('chỉ bổ sung chất vải và chiều cao còn thiếu', async () => {
+      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('289000đ freeship. Chị cho em xin cân nặng');
+      await deliver('53kg');
+      assert.equal(sentToMessenger.length, 2);
+      assert.match(sentToMessenger[0].message.text, /chất vải Cotton lạnh/);
+      assert.doesNotMatch(sentToMessenger[0].message.text, /289|SHIP/);
+      assert.match(sentToMessenger[1].message.text, /xin chiều cao/);
+      assert.doesNotMatch(sentToMessenger[1].message.text, /cân nặng/);
+    });
+    await scenario('không dùng mẫu cũ hay lịch sử mẫu cũ thay cho váy hoa thiết kế', async () => {
+      conversation.current_product_id = 99;
+      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('289K freeship cotton lạnh, cho xin cân nặng chiều cao');
+      await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 4);
-      assert.equal(sentToMessenger[3].message.text, aiResult.reply);
+      assert.equal(conversation.current_product_id, 7);
+      assert.ok(storedMessages.some((message) => message.text === '[Ảnh sản phẩm 7:primary-attachment]'));
     });
-
-    await scenario('khách cũ có lịch sử nhưng chưa có khóa chào vẫn đi thẳng vào AI', async () => {
-      settings.delete('bot_welcome:customer');
-      storedMessages.push({ conversation_id: conversation.id, direction: 'inbound', text: 'Chị 53kg' });
-      await deliver('cần địa chỉ không em');
-      assert.equal(aiRequests.length, 1);
-      assert.deepEqual(sentToMessenger.map((item) => item.message), [{ text: aiResult.reply }]);
-    });
-
-    await scenario('nhiều webhook khách mới đồng thời chỉ gửi một bộ ảnh và ưu đãi', async () => {
-      settings.delete('bot_welcome:customer');
-      await Promise.all([deliver('Chào shop'), deliver('Tư vấn giúp chị'), deliver('Giá sao em')]);
-      assert.equal(aiRequests.length, 0);
-      assert.equal(sentToMessenger.length, 3);
-      assert.equal(settings.get('bot_welcome:customer').value.status, 'complete');
-    });
-
-    await scenario('lời chào lỗi giữa chừng gửi tiếp phần thiếu, không lặp ảnh đã gửi', async () => {
-      settings.delete('bot_welcome:customer');
+    await scenario('gửi lỗi giữa chừng thì lần sau chỉ gửi phần thiếu', async () => {
       failAttachmentOnce = 'secondary-attachment';
       await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 1);
-      assert.equal(settings.get('bot_welcome:customer').value.status, 'retry');
-      await deliver('gửi tiếp chị xem');
-      assert.equal(aiRequests.length, 0);
-      assert.equal(sentToMessenger.length, 3);
-      assert.equal(settings.get('bot_welcome:customer').value.status, 'complete');
+      assert.equal(settings.get('bot_intro_v2:7:customer').value.status, 'retry');
+      await deliver('gửi tiếp');
+      assert.equal(sentToMessenger.length, 4);
       await deliver('chị 53kg');
-      assert.equal(aiRequests.length, 1);
       assert.equal(sentToMessenger.length, 4);
     });
-
-    await scenario('tắt bot thì không gọi AI hoặc gửi tin; vẫn lưu Ads ID', async () => {
-      assert.equal((await action('GET', 'auto_reply_status')).enabled, true);
-      assert.equal((await action('POST', 'toggle_auto_reply')).enabled, false);
-      global.autoReplyEnabled = true;
-      await deliver({ text: 'Tôi muốn xem mẫu quảng cáo', referral: { source: 'ADS', ad_id: '123456789' } });
+    await scenario('webhook đồng thời không gửi trùng bộ tư vấn', async () => {
+      await Promise.all([deliver('Chào shop'), deliver('giá sao'), deliver('xin thông tin')]);
+      assert.equal(sentToMessenger.length, 4);
       assert.equal(aiRequests.length, 0);
+    });
+    await scenario('kiểm tra lịch sử đầy đủ vượt 500 tin, không chỉ 40 tin gần nhất', async () => {
+      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      for (let i = 0; i < 501; i++) seed('Tin shop cũ');
+      seed('289K freeship cotton lạnh. Chị cho em cân nặng và chiều cao');
+      await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 0);
-      assert.equal(conversation.ad_id, '123456789');
-      storedMessages.push({ sender_id: 'customer', direction: 'inbound', text: 'Tin nhắn cũ', conversation_id: null });
-      const messages = await action('GET', 'get_messages');
-      assert.equal(messages.find((message) => message.text === 'Tin nhắn cũ').adId, '123456789');
-      assert.equal((await action('GET', 'auto_reply_status')).enabled, false);
     });
-
-    await scenario('khách đã nhận lời chào gửi cân nặng, địa chỉ, số điện thoại được đưa vào AI đúng một lần', async () => {
-      const order = '53kg cafe nông vụ Quang Thạnh vĩnh thái vĩnh thịnh vĩnh thạnh bình định cũ 0900000000';
-      aiResult = { reply: 'Dạ em đã nhận địa chỉ và số điện thoại; 53kg hợp size M theo bảng ạ. Chị muốn chọn màu nào trong mẫu này ạ?', media_ids: [] };
-      await deliver(order);
-      assert.equal(aiRequests.length, 1);
-      assert.deepEqual(aiRequests[0].input, [{ role: 'user', content: order }]);
-      assert.match(aiRequests[0].instructions, /Size M: 50-58kg/);
-      assert.match(aiRequests[0].instructions, /không hỏi lại thông tin đã có/);
-      assert.match(aiRequests[0].instructions, /Giá: 289000/);
-      assert.equal(aiRequests[0].text.format.type, 'json_schema');
-      assert.equal(aiRequests[0].store, false);
-      assert.deepEqual(sentToMessenger.map((item) => item.message), [{ text: aiResult.reply }]);
-      assert.equal(storedMessages.at(-1).direction, 'outbound');
-      assert.equal(storedMessages.at(-1).text, aiResult.reply);
+    await scenario('không coi nội dung khách tự nhắn là đã được shop tư vấn', async () => {
+      await deliver('289K freeship cotton lạnh cân nặng chiều cao');
+      assert.equal(sentToMessenger.length, 4);
     });
-
-    await scenario('khách trả lời tiếp sau kịch bản cũ vẫn gọi AI và giữ lịch sử', async () => {
-      settings.set('bot_welcome:customer', { key: 'bot_welcome:customer', value: { status: 'complete' } });
-      storedMessages.push(
-        { conversation_id: conversation.id, direction: 'inbound', text: 'Chị 53kg' },
-        { conversation_id: conversation.id, direction: 'outbound', text: 'Chị cho em xin cân nặng và chiều cao để em chọn size chuẩn cho chị nhé ạ.' },
-        { conversation_id: 999, direction: 'inbound', text: 'Khách khác 80kg' }
-      );
-      aiResult = { reply: 'Dạ em ghi nhận chị chọn màu đen, size M phù hợp với 53kg ạ.', media_ids: [] };
-      await deliver('chị lấy màu đen');
-      assert.deepEqual(aiRequests[0].input.map((item) => item.role), ['user', 'assistant', 'user']);
-      assert.equal(aiRequests[0].input[0].content, 'Chị 53kg');
-      assert.equal(aiRequests[0].input.at(-1).content, 'chị lấy màu đen');
-      await deliver('cảm ơn em');
-      assert.equal(aiRequests.length, 2);
-      assert.ok(aiRequests[1].input.some((item) => item.role === 'assistant' && item.content === aiResult.reply));
-      assert.equal(sentToMessenger.length, 2);
-    });
-
-    await scenario('ảnh/video chỉ gửi theo lựa chọn của AI, không kèm quảng cáo cố định', async () => {
-      product.images.push({ media_type: 'video', facebook_attachment_id: 'video-1', sort_order: 0 });
-      aiResult = { reply: 'Dạ em gửi chị hai ảnh của mẫu này ạ.', media_ids: ['primary-attachment', 'secondary-attachment'] };
-      await deliver('cho chị xem ảnh');
-      assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || item.message.text),
-        ['primary-attachment', 'secondary-attachment', aiResult.reply]);
-      aiResult = { reply: 'Dạ em gửi chị video mẫu ạ.', media_ids: ['video-1'] };
-      await deliver('có video không em');
-      assert.equal(sentToMessenger[3].message.attachment.type, 'video');
-      assert.ok(aiRequests[1].input.some((item) => item.content.includes('[Ảnh sản phẩm primary-attachment')));
-      aiResult = { reply: 'Dạ chị nhé.', media_ids: [] };
-      await deliver('ok em');
-      assert.equal(sentToMessenger.length, 6);
-      product.images.pop();
-    });
-
-    await scenario('thiếu ảnh không chặn trả lời bằng chữ', async () => {
-      const original = product.images;
-      product.images = [{ image_url: 'https://example.com/unregistered.jpg' }];
-      try {
-        await deliver('vải gì em');
-        assert.equal(aiRequests.length, 1);
-        assert.match(aiRequests[0].instructions, /ẢNH\/VIDEO CÓ THỂ GỬI:\n\[\]/);
-        assert.deepEqual(sentToMessenger.map((item) => item.message), [{ text: aiResult.reply }]);
-      } finally { product.images = original; }
-    });
-
-    await scenario('nhận tệp vẫn phân tích ngữ cảnh, không tự gửi bộ ảnh', async () => {
-      await deliver({ attachments: [{ type: 'image', payload: { url: 'https://example.com/customer.jpg' } }] });
-      assert.equal(aiRequests[0].input.at(-1).content, '[Khách gửi ảnh hoặc tệp]');
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(sentToMessenger[0].message.attachment, undefined);
-    });
-
-    await scenario('OpenAI lỗi thì ghi log, không gửi quảng cáo thay thế', async () => {
-      aiStatus = 401;
-      await deliver('chị đã gửi địa chỉ rồi');
-      assert.equal(aiRequests.length, 1);
+    await scenario('không tìm thấy sản phẩm chính hoặc lỗi lịch sử thì không đoán', async () => {
+      missingMainProduct = true;
+      await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 0);
-      assert.ok(global.taskLogs.some((log) => log.action === 'Auto-reply' && /OpenAI unavailable/.test(log.detail)));
-    });
-
-    await scenario('thiếu API key được ghi rõ, không âm thầm chạy kịch bản cũ', async () => {
-      delete process.env.OPENAI_API_KEY;
-      try {
-        await deliver('53kg chị mặc size gì');
-        assert.equal(aiRequests.length, 0);
-        assert.equal(sentToMessenger.length, 0);
-        assert.ok(global.taskLogs.some((log) => /Chưa cấu hình OPENAI_API_KEY/.test(log.detail)));
-      } finally { process.env.OPENAI_API_KEY = 'test-openai-key'; }
-    });
-
-    await scenario('không gửi kết quả chưa hoàn tất hoặc ID ảnh do AI bịa', async () => {
-      responseStatus = 'incomplete';
-      await deliver('tư vấn giúp chị');
-      assert.equal(sentToMessenger.length, 0);
-      responseStatus = 'completed';
-      aiResult.media_ids = ['unknown-attachment'];
-      await deliver('xem ảnh');
-      assert.equal(sentToMessenger.length, 0);
-      aiResult = { reply: ' ', media_ids: [] };
-      await deliver('giá sao em');
-      assert.equal(sentToMessenger.length, 0);
-      assert.equal(errors.length, 3);
-    });
-
-    await scenario('không trả lời thiếu ngữ cảnh khi không đọc được lịch sử', async () => {
+      assert.match(errors.at(-1)[1].message, /Váy hoa thiết kế/);
+      missingMainProduct = false;
       failHistory = true;
-      await deliver('địa chỉ như trên em nhé');
-      assert.equal(aiRequests.length, 0);
+      await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 0);
-      assert.ok(global.taskLogs.some((log) => /history unavailable/.test(log.detail)));
-      assert.ok(storedMessages.some((message) => message.direction === 'inbound' && message.text === 'địa chỉ như trên em nhé'));
+      assert.match(errors.at(-1)[1].message, /history unavailable/);
     });
-
-    await scenario('echo không tạo vòng lặp; test kết nối trả về văn bản', async () => {
-      await deliver({ text: 'tin shop gửi', is_echo: true });
-      assert.equal(aiRequests.length, 0);
-      aiResult = { reply: 'OK', media_ids: [] };
-      assert.deepEqual(await action('GET', 'test_openai'), { ok: true, reply: 'OK' });
+    await scenario('tắt bot và echo không gửi tư vấn', async () => {
+      await deliver({ text: 'tin shop', is_echo: true });
       assert.equal(sentToMessenger.length, 0);
+      await action('POST', 'toggle_auto_reply');
+      await deliver('Chào shop');
+      assert.equal(sentToMessenger.length, 0);
+      assert.equal(aiRequests.length, 0);
     });
   } finally {
     globalThis.fetch = originalFetch;

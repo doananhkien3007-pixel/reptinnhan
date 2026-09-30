@@ -9,9 +9,9 @@ export async function getWelcomeStatus(recipientId) {
   return data?.value?.status || null;
 }
 
-export async function acquireWelcomeClaim(recipientId) {
+export async function acquireWelcomeClaim(recipientId, scope = 'bot_welcome') {
   const supabase = requireSupabase();
-  const key = `bot_welcome:${recipientId}`;
+  const key = `${scope}:${recipientId}`;
   const updatedAt = new Date().toISOString();
   const value = { status: 'sending', lease_until: new Date(Date.now() + LEASE_MS).toISOString() };
   const { error } = await supabase.from('app_settings').insert({ key, value, updated_at: updatedAt });
