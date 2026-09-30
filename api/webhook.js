@@ -10,8 +10,7 @@ import {
   getSentConversationTexts,
   saveConversationMessage,
   updateConversationAd,
-  updateConversationProduct,
-  getRecentConversationMessages
+  updateConversationProduct
 } from './services/products.js';
 
 const LEGACY_PROMOTION_MESSAGE = '🌷 Mẫu này hôm nay bên em đang ưu đãi chỉ còn 289K + freeship ạ. Sang ngày mai shop sẽ trở lại giá cũ 450K chị nha 🥰';
@@ -305,10 +304,10 @@ async function sendMessengerImage(recipientId, image, conversationId, marker) {
 async function sendWelcomeSequence(recipientId, conversation = null) {
   conversation ||= await getOrCreateConversation(recipientId);
   const alreadySent = await getSentConversationTexts(conversation.id, [LEGACY_PROMOTION_MESSAGE, SIZE_QUESTION]);
-  if (alreadySent.has(LEGACY_PROMOTION_MESSAGE) || alreadySent.has(SIZE_QUESTION)) return false;
+  if (alreadySent.has(LEGACY_PROMOTION_MESSAGE) || alreadySent.has(SIZE_QUESTION)) return;
 
   const claim = await acquireWelcomeClaim(recipientId);
-  if (!claim) return true;
+  if (!claim) return;
   try {
     const sent = await getSentConversationTexts(conversation.id, [
       LEGACY_PROMOTION_MESSAGE,
@@ -319,7 +318,7 @@ async function sendWelcomeSequence(recipientId, conversation = null) {
     ]);
     if (sent.has(LEGACY_PROMOTION_MESSAGE) || sent.has(SIZE_QUESTION)) {
       await completeWelcomeClaim(claim);
-      return false;
+      return;
     }
 
     const product = await getOnlyActiveProduct();
@@ -345,7 +344,6 @@ async function sendWelcomeSequence(recipientId, conversation = null) {
     await sendMessengerMessage(recipientId, SIZE_QUESTION, conversation.id);
     await completeWelcomeClaim(claim);
     addTaskLog('Auto-reply', `Đã gửi đủ 2 ảnh, ưu đãi và câu hỏi chiều cao/cân nặng cho khách ${recipientId}; bot dừng trả lời.`);
-    return true;
   } catch (error) {
     try {
       await releaseWelcomeClaim(claim);
@@ -522,19 +520,10 @@ export default async function handler(req, res) {
               // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
               if (autoReplyEnabled) {
                 try {
-                  const wasWelcomeSent = await sendWelcomeSequence(senderPsid, conversation);
-                  if (!wasWelcomeSent && receivedText !== FIRST_IMAGE_MARKER && receivedText !== SECOND_IMAGE_MARKER && receivedText !== PROMOTION_MESSAGE && receivedText !== SIZE_QUESTION && receivedText !== LEGACY_PROMOTION_MESSAGE) {
-                    addTaskLog('Auto-reply', 'Chuyển tin nhắn cho AI xử lý...');
-                    const history = await getRecentConversationMessages(conversation.id);
-                    const product = await getOnlyActiveProduct();
-                    const productContext = product ? `SẢN PHẨM ĐANG TƯ VẤN:\n- Tên: ${product.name}\n- Giá: ${product.price}\n- Chất liệu: ${product.material}\n- Bảng size: ${product.size_guide}\n- Màu: ${product.colors?.join(', ') || 'Không rõ'}` : 'SẢN PHẨM ĐANG TƯ VẤN: Chưa xác định.';
-                    
-                    const reply = await generateOpenAIReply(receivedText, { productContext, history });
-                    await sendMessengerMessage(senderPsid, reply, conversation.id);
-                  }
+                  await sendWelcomeSequence(senderPsid, conversation);
                 } catch (error) {
-                  addTaskLog('Auto-reply', `Lỗi xử lý cho khách ${senderPsid}: ${error.message}`);
-                  console.error('Lỗi xử lý auto-reply:', error);
+                  addTaskLog('Auto-reply', `Lỗi gửi lời chào cho khách ${senderPsid}: ${error.message}`);
+                  console.error('Không thể gửi lời chào:', error);
                 }
               } else {
                 addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
