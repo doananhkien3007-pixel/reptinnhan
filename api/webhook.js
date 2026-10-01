@@ -1,5 +1,6 @@
 // api/webhook.js
 import { generateReply } from './services/ai-reply.js';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { withTypingDelay } from './services/messenger-typing.js';
 import { getSupabase } from './services/supabase.js';
 import { planIntroduction } from './services/product-introduction.js';
@@ -259,6 +260,14 @@ async function sendMessengerMedia(recipientId, media, conversationId, marker) {
   addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
 }
 
+async function waitBetweenReplies() {
+  const configured = Number(process.env.MESSENGER_SEQUENCE_DELAY_MS);
+  const delay = Number.isFinite(configured)
+    ? Math.max(0, Math.min(5000, configured))
+    : 1500;
+  if (delay) await sleep(delay);
+}
+
 async function replyToCustomer(recipientId, conversation) {
   const product = await getMainProduct();
   const texts = await getAllSentTexts(recipientId);
@@ -274,13 +283,23 @@ async function replyToCustomer(recipientId, conversation) {
   if (!claim) return;
   try {
     const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
+    let sentAny = false;
+    const pause = async () => {
+      if (sentAny) await waitBetweenReplies();
+      sentAny = true;
+    };
     for (const { image, marker } of latest.images) {
+      await pause();
       await sendMessengerMedia(recipientId, image, conversation.id, marker);
     }
     for (const { video, marker } of latest.videos) {
+      await pause();
       await sendMessengerMedia(recipientId, video, conversation.id, marker);
     }
-    for (const text of latest.messages) await sendMessengerMessage(recipientId, text, conversation.id);
+    for (const text of latest.messages) {
+      await pause();
+      await sendMessengerMessage(recipientId, text, conversation.id);
+    }
     // Chỉ chuyển liên kết sản phẩm sau khi tư vấn đủ, tránh nhận nhầm marker mẫu cũ khi thử lại.
     await updateConversationProduct(conversation.id, product.id);
     await completeWelcomeClaim(claim);
