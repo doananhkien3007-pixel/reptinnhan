@@ -9,6 +9,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
   process.env.OPENAI_API_KEY = 'test-openai-key';
   process.env.MESSENGER_TYPING_DELAY_MS = '0';
   process.env.MESSENGER_SEQUENCE_DELAY_MS = '0';
+  process.env.MESSENGER_INITIAL_REPLY_DELAY_MS = '0';
 
   const product = {
     id: 7,

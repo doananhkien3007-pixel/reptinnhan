@@ -268,6 +268,14 @@ async function waitBetweenReplies() {
   if (delay) await sleep(delay);
 }
 
+async function waitBeforeFirstReply() {
+  const configured = Number(process.env.MESSENGER_INITIAL_REPLY_DELAY_MS);
+  const delay = Number.isFinite(configured)
+    ? Math.max(0, Math.min(10000, configured))
+    : 3000;
+  if (delay) await sleep(delay);
+}
+
 async function replyToCustomer(recipientId, conversation) {
   const product = await getMainProduct();
   const texts = await getAllSentTexts(recipientId);
@@ -283,6 +291,7 @@ async function replyToCustomer(recipientId, conversation) {
   if (!claim) return;
   try {
     const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
+    await waitBeforeFirstReply();
     let sentAny = false;
     const pause = async () => {
       if (sentAny) await waitBetweenReplies();
