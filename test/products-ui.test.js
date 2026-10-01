@@ -23,6 +23,7 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
     },
     fetch: async (url, init = {}) => {
       if (url === '/api/products?action=list') return Response.json(listedProducts);
+      if (url === '/api/products?action=ad_mappings') return Response.json([]);
       calls.push({ url, ...init });
       const parsed = new URL(url, 'https://app.example');
       if (parsed.hostname === 'storage.example') {

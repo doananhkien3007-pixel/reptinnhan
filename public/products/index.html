@@ -41,6 +41,8 @@
     .attachment-row code { user-select: all; color: #111827; }
     .image-item { position: relative; display: inline-flex; flex-direction: column; gap: 2px; font-size: 10px; color: #6b7280; text-align: center; }
     .image-item.primary img { border: 2px solid #1877f2; }
+    .mapping-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+    .mapping-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr auto; } }
   </style>
 </head>
@@ -49,6 +51,18 @@
     <div class="card">
       <h1>Quản lý sản phẩm</h1>
       <div id="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Mapping quảng cáo → sản phẩm</h2>
+      <p class="muted">Gắn Ads ID Facebook với sản phẩm. Khi khách bấm quảng cáo này, bot dùng đúng sản phẩm và vẫn nhận ra khách đã được tư vấn.</p>
+      <form id="mapping-form" class="mapping-form">
+        <label>Ads ID<input id="mapping-ad-id" inputmode="numeric" pattern="[0-9]+" placeholder="Ví dụ: 52587817621103" required></label>
+        <label>Sản phẩm<select id="mapping-product-id" required></select></label>
+        <button type="submit">Lưu mapping</button>
+      </form>
+      <div id="mapping-status" class="muted" style="margin-top:10px"></div>
+      <div id="ad-mappings" style="margin-top:10px">Đang tải...</div>
     </div>
 
     <form id="product-form" class="card">
@@ -84,6 +98,7 @@
 
   <script>
     let products = [];
+    let adMappings = [];
     let editingId = null;
     let uploading = false;
     const completedUploads = new WeakMap();
@@ -190,12 +205,61 @@
       document.querySelectorAll('[data-delete]').forEach((button) => button.addEventListener('click', () => deleteProduct(Number(button.dataset.delete))));
     }
 
+    function renderMappingProducts() {
+      $('mapping-product-id').innerHTML = products.length
+        ? products.map((product) => `<option value="${product.id}">${escapeHtml(product.name)} · ID ${product.id}</option>`).join('')
+        : '<option value="">Chưa có sản phẩm</option>';
+    }
+
+    function renderAdMappings() {
+      $('ad-mappings').innerHTML = adMappings.length
+        ? adMappings.map((mapping) => {
+            const product = products.find((item) => Number(item.id) === Number(mapping.product_id));
+            return `<div class="mapping-row"><code>${escapeHtml(mapping.ad_id)}</code><span>${escapeHtml(product?.name || `Sản phẩm ID ${mapping.product_id}`)}</span><button type="button" class="danger" data-delete-mapping="${escapeHtml(mapping.ad_id)}">Xoá</button></div>`;
+          }).join('')
+        : '<span class="muted">Chưa có quảng cáo nào được mapping.</span>';
+      document.querySelectorAll('[data-delete-mapping]').forEach((button) => button.addEventListener('click', () => deleteAdMapping(button.dataset.deleteMapping)));
+    }
+
     async function loadProducts() {
       const response = await fetch('/api/products?action=list');
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Không thể tải sản phẩm.');
       products = data;
       renderProducts();
+      renderMappingProducts();
+      renderAdMappings();
+    }
+
+    async function loadAdMappings() {
+      const response = await fetch('/api/products?action=ad_mappings');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Không thể tải mapping quảng cáo.');
+      adMappings = data;
+      renderAdMappings();
+    }
+
+    async function saveAdMapping(event) {
+      event.preventDefault();
+      const response = await fetch('/api/products?action=save_ad_mapping', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ad_id: $('mapping-ad-id').value.trim(), product_id: Number($('mapping-product-id').value) })
+      });
+      const data = await response.json();
+      if (!response.ok) { $('mapping-status').textContent = data.error || 'Không thể lưu mapping.'; return; }
+      $('mapping-ad-id').value = '';
+      $('mapping-status').textContent = `Đã mapping Ads ID ${data.ad_id}.`;
+      await loadAdMappings();
+    }
+
+    async function deleteAdMapping(adId) {
+      const response = await fetch('/api/products?action=delete_ad_mapping', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ad_id: adId })
+      });
+      const data = await response.json();
+      if (!response.ok) { $('mapping-status').textContent = data.error || 'Không thể xoá mapping.'; return; }
+      $('mapping-status').textContent = `Đã xoá mapping Ads ID ${adId}.`;
+      await loadAdMappings();
     }
 
     async function saveProduct(event) {
@@ -319,11 +383,12 @@
     }
 
     $('product-form').addEventListener('submit', saveProduct);
+    $('mapping-form').addEventListener('submit', saveAdMapping);
     $('add-variant').addEventListener('click', () => addVariantRow());
     $('cancel-edit').addEventListener('click', clearForm);
     $('upload-product-videos').addEventListener('click', () => uploadProductVideos());
     clearForm();
-    loadProducts().catch((error) => setStatus(error.message, true));
+    Promise.all([loadProducts(), loadAdMappings()]).catch((error) => setStatus(error.message, true));
   </script>
 </body>
 </html>

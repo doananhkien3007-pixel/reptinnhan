@@ -438,7 +438,11 @@ export default async function handler(req, res) {
               try {
                 conversation = await getOrCreateConversation(senderPsid);
                 const productId = await updateConversationAd(conversation, adId);
-                conversation = { ...conversation, ad_id: adId, current_product_id: productId };
+                conversation = {
+                  ...conversation,
+                  ad_id: adId,
+                  current_product_id: productId || conversation.current_product_id
+                };
                 addTaskLog('Ads', `Khách ${senderPsid}: ad_id ${adId} từ ${channel}.${location}${productId ? ` → sản phẩm ${productId}` : ' (chưa map sản phẩm)'}`);
               } catch (error) {
                 addTaskLog('Supabase', error.message);

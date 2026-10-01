@@ -150,11 +150,11 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     assert.equal(res.statusCode, 200);
     return res.body;
   };
-  const deliver = async (message) => {
+  const deliver = async (message, event = {}) => {
     const req = {
       method: 'POST',
       query: {},
-      body: { object: 'page', entry: [{ messaging: [{ sender: { id: 'customer' }, message: typeof message === 'string' ? { text: message } : message }] }] }
+      body: { object: 'page', entry: [{ messaging: [{ sender: { id: 'customer' }, message: typeof message === 'string' ? { text: message } : message, ...event }] }] }
     };
     const res = {
       status(code) { this.statusCode = code; return this; },
@@ -215,6 +215,16 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       await deliver('cảm ơn');
       assert.equal(sentToMessenger.length, 0);
       assert.equal(aiRequests.length, 0);
+    });
+    await scenario('bấm quảng cáo mới chưa map vẫn giữ lịch sử tư vấn của cùng khách', async () => {
+      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('[Video sản phẩm video-attachment]');
+      seed('Giá 289.000đ miễn phí ship, chất vải Cotton lạnh');
+      seed('Chị cho em xin cân nặng và chiều cao nhé');
+      await deliver('Có miễn phí ship không?', { referral: { ad_id: 'new-unmapped-ad', source: 'ADS' } });
+      assert.equal(sentToMessenger.length, 0);
+      assert.equal(conversation.ad_id, 'new-unmapped-ad');
+      assert.equal(conversation.current_product_id, 7);
     });
     await scenario('thiếu nội dung thì gửi đúng mẫu ưu đãi và câu hỏi đã được yêu cầu', async () => {
       seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');

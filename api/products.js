@@ -114,6 +114,39 @@ export default async function handler(req, res) {
       return res.status(200).json(await listProducts({ includeInactive: true }));
     }
 
+    if (req.method === 'GET' && action === 'ad_mappings') {
+      const { data, error } = await supabase.from('ad_product_mappings')
+        .select('ad_id, product_id, created_at, updated_at')
+        .order('updated_at', { ascending: false });
+      if (error) throw new Error(`Không thể tải mapping quảng cáo: ${error.message}`);
+      return res.status(200).json(data || []);
+    }
+
+    if (req.method === 'POST' && action === 'save_ad_mapping') {
+      const adId = String(req.body?.ad_id || '').trim();
+      const productId = Number(req.body?.product_id);
+      if (!/^\d+$/.test(adId)) throw new Error('Ads ID chỉ được chứa chữ số.');
+      if (!Number.isInteger(productId) || productId <= 0) throw new Error('Hãy chọn sản phẩm hợp lệ.');
+      const { data: products, error: productError } = await supabase.from('products')
+        .select('id').eq('id', productId).limit(1);
+      if (productError) throw new Error(`Không thể kiểm tra sản phẩm: ${productError.message}`);
+      if (!products?.[0]) throw new Error('Không tìm thấy sản phẩm để mapping.');
+      const now = new Date().toISOString();
+      const { data, error } = await supabase.from('ad_product_mappings').upsert({
+        ad_id: adId, product_id: productId, updated_at: now
+      }, { onConflict: 'ad_id' }).select('ad_id, product_id, created_at, updated_at').single();
+      if (error) throw new Error(`Không thể lưu mapping quảng cáo: ${error.message}`);
+      return res.status(200).json(data);
+    }
+
+    if (req.method === 'POST' && action === 'delete_ad_mapping') {
+      const adId = String(req.body?.ad_id || '').trim();
+      if (!adId) throw new Error('Thiếu Ads ID cần xoá.');
+      const { error } = await supabase.from('ad_product_mappings').delete().eq('ad_id', adId);
+      if (error) throw new Error(`Không thể xoá mapping quảng cáo: ${error.message}`);
+      return res.status(200).json({ ok: true });
+    }
+
     if (req.method === 'POST' && (action === 'create' || action === 'update')) {
       const product = normalizeProduct(req.body?.product);
       validateProduct(product);
