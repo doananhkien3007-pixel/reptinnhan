@@ -11,6 +11,11 @@ export function planIntroduction(product, texts, { allowLegacy = false } = {}) {
     .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 2);
   if (images.length < 2) throw new Error('Sản phẩm chính cần ít nhất 2 ảnh Facebook khác nhau.');
+  const videos = [...new Map((product.images || [])
+    .filter((item) => item.media_type === 'video' && String(item.facebook_attachment_id || '').trim())
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 1);
+  if (!videos.length) throw new Error('Sản phẩm chính cần ít nhất 1 video có facebook_attachment_id.');
   const prefix = `Dạ mẫu ${product.name}: `;
   const hasProductImages = texts.some((text) => text.startsWith(`[Ảnh sản phẩm ${product.id}:`));
   const relevant = texts.filter((text) => allowLegacy || text.startsWith(prefix) ||
@@ -33,6 +38,13 @@ export function planIntroduction(product, texts, { allowLegacy = false } = {}) {
       marker: `[Ảnh sản phẩm ${product.id}:${String(image.facebook_attachment_id).trim()}]`,
       legacyMarkers: [`[Ảnh sản phẩm ${index + 1}]`, `[Ảnh sản phẩm ${String(image.facebook_attachment_id).trim()}]`],
       legacyColorPrefix: `[Ảnh sản phẩm ${String(image.facebook_attachment_id).trim()}, màu `
+    })).filter(({ marker, legacyMarkers, legacyColorPrefix }) => !texts.includes(marker) &&
+      !(allowLegacy && texts.some((text) => legacyMarkers.includes(text) || text.startsWith(legacyColorPrefix)))),
+    videos: videos.map((video) => ({
+      video,
+      marker: `[Video sản phẩm ${product.id}:${String(video.facebook_attachment_id).trim()}]`,
+      legacyMarkers: [`[Video sản phẩm ${String(video.facebook_attachment_id).trim()}]`],
+      legacyColorPrefix: `[Video sản phẩm ${String(video.facebook_attachment_id).trim()}, màu `
     })).filter(({ marker, legacyMarkers, legacyColorPrefix }) => !texts.includes(marker) &&
       !(allowLegacy && texts.some((text) => legacyMarkers.includes(text) || text.startsWith(legacyColorPrefix)))),
     messages: [

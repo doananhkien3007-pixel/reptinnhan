@@ -20,7 +20,8 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     colors: ['Đen'],
     images: [
       { image_url: 'https://example.com/secondary.jpg', facebook_attachment_id: 'secondary-attachment', sort_order: 1 },
-      { image_url: 'https://example.com/primary.jpg', facebook_attachment_id: 'primary-attachment', is_primary: true, sort_order: 2 }
+      { image_url: 'https://example.com/primary.jpg', facebook_attachment_id: 'primary-attachment', is_primary: true, sort_order: 2 },
+      { media_type: 'video', facebook_attachment_id: 'video-attachment', sort_order: 3 }
     ]
   };
   let conversation = null;
@@ -183,12 +184,12 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       try {
         await deliver('Chào shop');
         assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || 'text'),
-          ['primary-attachment', 'secondary-attachment', 'text', 'text']);
-        assert.equal(sentToMessenger[2].message.text, PROMOTION_MESSAGE);
-        assert.match(sentToMessenger[3].message.text, /cân nặng và chiều cao/);
+          ['primary-attachment', 'secondary-attachment', 'video-attachment', 'text', 'text']);
+        assert.equal(sentToMessenger[3].message.text, PROMOTION_MESSAGE);
+        assert.match(sentToMessenger[4].message.text, /cân nặng và chiều cao/);
         await deliver('chị 53kg cao 1m60');
         await deliver('giá bao nhiêu');
-        assert.equal(sentToMessenger.length, 4);
+        assert.equal(sentToMessenger.length, 5);
         assert.equal(aiRequests.length, 0);
       } finally { process.env.OPENAI_API_KEY = 'test-openai-key'; }
     });
@@ -196,6 +197,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       settings.set('bot_welcome:customer', { key: 'bot_welcome:customer', value: { status: 'complete' } });
       seed('[Ảnh sản phẩm 1]');
       seed('[Ảnh sản phẩm 2]');
+      seed('[Video sản phẩm video-attachment]');
       seed('Mẫu này đang ưu đãi 289K + MIỄN PHÍ SHIP, vải cotton lạnh mềm mát.');
       await deliver('chị muốn mua');
       assert.equal(sentToMessenger.length, 1);
@@ -205,6 +207,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     });
     await scenario('đã tư vấn đầy đủ trong lịch sử cũ thì không gửi thêm', async () => {
       seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('[Video sản phẩm video-attachment]');
       seed('Giá 289.000đ miễn phí ship, chất vải Cotton lạnh');
       seed('Chị cho em xin cân nặng và chiều cao nhé');
       await deliver('cảm ơn');
@@ -213,6 +216,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     });
     await scenario('thiếu nội dung thì gửi đúng mẫu ưu đãi và câu hỏi đã được yêu cầu', async () => {
       seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('[Video sản phẩm video-attachment]');
       seed('289000đ freeship. Chị cho em xin cân nặng');
       await deliver('53kg');
       assert.equal(sentToMessenger.length, 2);
@@ -224,7 +228,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
       seed('289K freeship cotton lạnh, cho xin cân nặng chiều cao');
       await deliver('Chào shop');
-      assert.equal(sentToMessenger.length, 4);
+      assert.equal(sentToMessenger.length, 5);
       assert.equal(conversation.current_product_id, 7);
       assert.ok(storedMessages.some((message) => message.text === '[Ảnh sản phẩm 7:primary-attachment]'));
     });
@@ -234,17 +238,18 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       assert.equal(sentToMessenger.length, 1);
       assert.equal(settings.get('bot_intro_v2:7:customer').value.status, 'retry');
       await deliver('gửi tiếp');
-      assert.equal(sentToMessenger.length, 4);
+      assert.equal(sentToMessenger.length, 5);
       await deliver('chị 53kg');
-      assert.equal(sentToMessenger.length, 4);
+      assert.equal(sentToMessenger.length, 5);
     });
     await scenario('webhook đồng thời không gửi trùng bộ tư vấn', async () => {
       await Promise.all([deliver('Chào shop'), deliver('giá sao'), deliver('xin thông tin')]);
-      assert.equal(sentToMessenger.length, 4);
+      assert.equal(sentToMessenger.length, 5);
       assert.equal(aiRequests.length, 0);
     });
     await scenario('kiểm tra lịch sử đầy đủ vượt 500 tin, không chỉ 40 tin gần nhất', async () => {
       seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
+      seed('[Video sản phẩm video-attachment]');
       for (let i = 0; i < 501; i++) seed('Tin shop cũ');
       seed('289K freeship cotton lạnh. Chị cho em cân nặng và chiều cao');
       await deliver('Chào shop');
@@ -252,7 +257,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     });
     await scenario('không coi nội dung khách tự nhắn là đã được shop tư vấn', async () => {
       await deliver('289K freeship cotton lạnh cân nặng chiều cao');
-      assert.equal(sentToMessenger.length, 4);
+      assert.equal(sentToMessenger.length, 5);
     });
     await scenario('không tìm thấy sản phẩm chính hoặc lỗi lịch sử thì không đoán', async () => {
       missingMainProduct = true;
@@ -265,13 +270,14 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       assert.equal(sentToMessenger.length, 0);
       assert.match(errors.at(-1)[1].message, /history unavailable/);
     });
-    await scenario('đã gửi hình nhưng khóa complete sai vẫn gửi hai tin còn thiếu', async () => {
+    await scenario('đã gửi hình nhưng khóa complete sai vẫn gửi video rồi hai tin còn thiếu', async () => {
       seed('[Ảnh sản phẩm 7:primary-attachment]'); seed('[Ảnh sản phẩm 7:secondary-attachment]');
       settings.set('bot_intro_v2:7:customer', { key: 'bot_intro_v2:7:customer', value: { status: 'complete' }, updated_at: '2026-10-01T00:00:00Z' });
       await deliver('Tư vấn giúp chị');
-      assert.deepEqual(sentToMessenger.map((item) => item.message), [{ text: PROMOTION_MESSAGE }, { text: SIZE_QUESTION }]);
+      assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || item.message.text),
+        ['video-attachment', PROMOTION_MESSAGE, SIZE_QUESTION]);
       await deliver('chị 53kg');
-      assert.equal(sentToMessenger.length, 2);
+      assert.equal(sentToMessenger.length, 3);
     });
     await scenario('tắt bot và echo không gửi tư vấn', async () => {
       await deliver({ text: 'tin shop', is_echo: true });

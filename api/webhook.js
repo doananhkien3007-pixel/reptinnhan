@@ -265,8 +265,8 @@ async function replyToCustomer(recipientId, conversation) {
   // Chỉ công nhận marker cũ không có mã sản phẩm nếu hội thoại đang gắn đúng mẫu.
   const allowLegacy = String(conversation.current_product_id) === String(product.id);
   const plan = planIntroduction(product, texts, { allowLegacy });
-  if (!plan.images.length && !plan.messages.length) {
-    addTaskLog('Auto-reply', `Khách ${recipientId} đã nhận đủ hình, giá, ưu đãi, chất vải và câu hỏi cân nặng/chiều cao; hoàn tất.`);
+  if (!plan.images.length && !plan.videos.length && !plan.messages.length) {
+    addTaskLog('Auto-reply', `Khách ${recipientId} đã nhận đủ 2 ảnh, video, giá, ưu đãi, chất vải và câu hỏi cân nặng/chiều cao; hoàn tất.`);
     return;
   }
   // Khóa riêng cho nhiệm vụ mới; trạng thái complete của lời chào cũ không bỏ sót câu hỏi size.
@@ -276,6 +276,9 @@ async function replyToCustomer(recipientId, conversation) {
     const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
     for (const { image, marker } of latest.images) {
       await sendMessengerMedia(recipientId, image, conversation.id, marker);
+    }
+    for (const { video, marker } of latest.videos) {
+      await sendMessengerMedia(recipientId, video, conversation.id, marker);
     }
     for (const text of latest.messages) await sendMessengerMessage(recipientId, text, conversation.id);
     // Chỉ chuyển liên kết sản phẩm sau khi tư vấn đủ, tránh nhận nhầm marker mẫu cũ khi thử lại.
