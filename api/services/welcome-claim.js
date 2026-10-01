@@ -9,7 +9,7 @@ export async function getWelcomeStatus(recipientId) {
   return data?.value?.status || null;
 }
 
-export async function acquireWelcomeClaim(recipientId, scope = 'bot_welcome') {
+export async function acquireWelcomeClaim(recipientId, scope = 'bot_welcome', { reopenComplete = false } = {}) {
   const supabase = requireSupabase();
   const key = `${scope}:${recipientId}`;
   const updatedAt = new Date().toISOString();
@@ -23,7 +23,7 @@ export async function acquireWelcomeClaim(recipientId, scope = 'bot_welcome') {
     .eq('key', key)
     .maybeSingle();
   if (readError) throw new Error(`Không thể đọc khoá lời chào: ${readError.message}`);
-  if (!existing || existing.value?.status === 'complete' || Date.parse(existing.value?.lease_until) > Date.now()) {
+  if (!existing || (existing.value?.status === 'complete' && !reopenComplete) || Date.parse(existing.value?.lease_until) > Date.now()) {
     return null;
   }
 

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { PROMOTION_MESSAGE, SIZE_QUESTION } from '../api/services/product-introduction.js';
 
 test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -181,7 +182,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
         await deliver('Chào shop');
         assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || 'text'),
           ['primary-attachment', 'secondary-attachment', 'text', 'text']);
-        assert.match(sentToMessenger[2].message.text, /Váy hoa thiết kế.*289\.000đ.*MIỄN PHÍ SHIP.*Cotton lạnh/);
+        assert.equal(sentToMessenger[2].message.text, PROMOTION_MESSAGE);
         assert.match(sentToMessenger[3].message.text, /cân nặng và chiều cao/);
         await deliver('chị 53kg cao 1m60');
         await deliver('giá bao nhiêu');
@@ -208,15 +209,13 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       assert.equal(sentToMessenger.length, 0);
       assert.equal(aiRequests.length, 0);
     });
-    await scenario('chỉ bổ sung chất vải và chiều cao còn thiếu', async () => {
+    await scenario('thiếu nội dung thì gửi đúng mẫu ưu đãi và câu hỏi đã được yêu cầu', async () => {
       seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
       seed('289000đ freeship. Chị cho em xin cân nặng');
       await deliver('53kg');
       assert.equal(sentToMessenger.length, 2);
-      assert.match(sentToMessenger[0].message.text, /chất vải Cotton lạnh/);
-      assert.doesNotMatch(sentToMessenger[0].message.text, /289|SHIP/);
-      assert.match(sentToMessenger[1].message.text, /xin chiều cao/);
-      assert.doesNotMatch(sentToMessenger[1].message.text, /cân nặng/);
+      assert.equal(sentToMessenger[0].message.text, PROMOTION_MESSAGE);
+      assert.equal(sentToMessenger[1].message.text, SIZE_QUESTION);
     });
     await scenario('không dùng mẫu cũ hay lịch sử mẫu cũ thay cho váy hoa thiết kế', async () => {
       conversation.current_product_id = 99;
@@ -263,6 +262,14 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 0);
       assert.match(errors.at(-1)[1].message, /history unavailable/);
+    });
+    await scenario('đã gửi hình nhưng khóa complete sai vẫn gửi hai tin còn thiếu', async () => {
+      seed('[Ảnh sản phẩm 7:primary-attachment]'); seed('[Ảnh sản phẩm 7:secondary-attachment]');
+      settings.set('bot_intro_v2:7:customer', { key: 'bot_intro_v2:7:customer', value: { status: 'complete' }, updated_at: '2026-10-01T00:00:00Z' });
+      await deliver('Tư vấn giúp chị');
+      assert.deepEqual(sentToMessenger.map((item) => item.message), [{ text: PROMOTION_MESSAGE }, { text: SIZE_QUESTION }]);
+      await deliver('chị 53kg');
+      assert.equal(sentToMessenger.length, 2);
     });
     await scenario('tắt bot và echo không gửi tư vấn', async () => {
       await deliver({ text: 'tin shop', is_echo: true });

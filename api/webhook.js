@@ -267,7 +267,7 @@ async function replyToCustomer(recipientId, conversation) {
     return;
   }
   // Khóa riêng cho nhiệm vụ mới; trạng thái complete của lời chào cũ không bỏ sót câu hỏi size.
-  const claim = await acquireWelcomeClaim(recipientId, `bot_intro_v2:${product.id}`);
+  const claim = await acquireWelcomeClaim(recipientId, `bot_intro_v2:${product.id}`, { reopenComplete: true });
   if (!claim) return;
   try {
     const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
