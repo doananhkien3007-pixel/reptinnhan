@@ -13,8 +13,9 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   let expectedColor = 'Đen & đỏ';
   let listedProducts = [];
   const calls = [];
+  let preparedCount = 0;
   const context = vm.createContext({
-    URLSearchParams,
+    URLSearchParams, FormData,
     window: { scrollTo() {} },
     document: {
       getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
@@ -23,15 +24,30 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
     fetch: async (url, init = {}) => {
       if (url === '/api/products?action=list') return Response.json(listedProducts);
       calls.push({ url, ...init });
-      const query = new URL(url, 'https://app.example').searchParams;
-      assert.equal(query.get('action'), 'upload_video');
-      assert.equal(query.get('product_id'), '7');
-      assert.equal(query.get('color'), expectedColor);
-      assert.equal(query.get('sort_order'), '0');
+      const parsed = new URL(url, 'https://app.example');
+      if (parsed.hostname === 'storage.example') {
+        assert.equal(init.method, 'PUT');
+        assert.ok(init.body instanceof FormData);
+        assert.ok(init.body.get('') instanceof Blob);
+        return Response.json({ Key: 'product-images/video.mp4' });
+      }
+      const action = parsed.searchParams.get('action');
+      const payload = JSON.parse(init.body);
       assert.equal(init.method, 'POST');
-      assert.equal(init.headers['Content-Type'], 'application/octet-stream');
-      assert.ok(init.body instanceof Blob);
-      assert.equal(await init.body.text(), 'video bytes');
+      assert.equal(init.headers['Content-Type'], 'application/json');
+      assert.equal(payload.product_id, 7);
+      if (action === 'prepare_video_upload') {
+        preparedCount += 1;
+        assert.match(payload.filename, /\.mp4$/);
+        return Response.json({
+          path: `7/videos/video-${preparedCount}.mp4`,
+          signed_url: `https://storage.example/upload-${preparedCount}`
+        });
+      }
+      assert.equal(action, 'finalize_video_upload');
+      assert.equal(payload.color, expectedColor);
+      assert.equal(payload.sort_order, 0);
+      assert.match(payload.path, /^7\/videos\/video-\d+\.mp4$/);
       return uploadFails ? Response.json({ error: 'Facebook bận' }, { status: 400 }) : Response.json({ facebook_attachment_id: 'video-1' });
     }
   });
@@ -43,13 +59,12 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   await assert.rejects(context.uploadVideo(file, 7, 'Đen & đỏ', 0, {}), /Facebook bận/);
   uploadFails = false;
   assert.equal((await context.uploadVideo(file, 7, 'Đen & đỏ', 0, {})).facebook_attachment_id, 'video-1');
-  assert.equal(calls.length, 2);
-  assert.ok(calls.every((call) => call.url.startsWith('/api/products?')));
+  assert.equal(calls.length, 6);
   const largeFile = new Blob(['video bytes'], { type: 'video/mp4' });
   largeFile.name = 'large.mp4';
   Object.defineProperty(largeFile, 'size', { value: 8 * 1024 * 1024 });
   await context.uploadVideo(largeFile, 7, 'Đen & đỏ', 0, {});
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 9);
   vm.runInContext(`products = [{id: 7, name: 'Váy', images: [
     {image_url: 'image.jpg'}, {media_type: 'video', facebook_attachment_id: 'video-1'}
   ]}]; renderProducts();`, context);
@@ -59,14 +74,22 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   assert.doesNotMatch(elements.get('products').innerHTML, /<video|undefined/);
 
   // Existing products without colors can upload video immediately, without saving again.
-  context.editProduct({ id: 7, name: 'Sản phẩm cũ', images: [] });
+  context.editProduct({
+    id: 7, name: 'Sản phẩm cũ', images: [
+      { color: 'Đỏ', facebook_attachment_id: 'image-attachment-1' },
+      { media_type: 'video', facebook_attachment_id: 'video-attachment-1' }
+    ]
+  });
   assert.equal(elements.get('upload-product-videos').disabled, false);
   assert.match(elements.get('product-video-status').textContent, /upload thêm video ngay/);
+  assert.match(elements.get('product-attachment-ids').innerHTML, /Ảnh · Màu Đỏ/);
+  assert.match(elements.get('product-attachment-ids').innerHTML, /image-attachment-1/);
+  assert.match(elements.get('product-attachment-ids').innerHTML, /video-attachment-1/);
   expectedColor = '';
   elements.get('product-video-files').files = [file];
   listedProducts = [{ id: 7, name: 'Sản phẩm cũ', images: [{ media_type: 'video', facebook_attachment_id: 'video-1' }] }];
   assert.equal(await context.uploadProductVideos(), true);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 12);
   assert.match(elements.get('product-videos').innerHTML, /ID: video-1/);
   assert.equal(elements.get('product-video-files').value, '');
   context.clearForm();

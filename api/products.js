@@ -150,6 +150,53 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (req.method === 'POST' && action === 'prepare_video_upload') {
+      const productId = Number(req.body?.product_id);
+      const filename = String(req.body?.filename || 'video.mp4');
+      if (!Number.isInteger(productId) || productId <= 0) throw new Error('Thiếu product_id hợp lệ.');
+      if (!/\.mp4$/i.test(filename)) throw new Error('Chỉ hỗ trợ video MP4.');
+      const { data: products, error: productError } = await supabase.from('products')
+        .select('id').eq('id', productId).limit(1);
+      if (productError) throw new Error(`Không thể kiểm tra sản phẩm: ${productError.message}`);
+      if (!products?.[0]) throw new Error('Không tìm thấy sản phẩm để lưu video.');
+      await ensureImageBucket(supabase);
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '-');
+      const path = `${productId}/videos/${crypto.randomUUID()}-${safeName}`;
+      const { data, error } = await supabase.storage.from('product-images').createSignedUploadUrl(path);
+      if (error || !data?.signedUrl) throw new Error(`Không thể tạo đường dẫn upload video: ${error?.message || 'Phản hồi không hợp lệ'}`);
+      return res.status(200).json({ path, signed_url: data.signedUrl });
+    }
+
+    if (req.method === 'POST' && action === 'finalize_video_upload') {
+      const productId = Number(req.body?.product_id);
+      const path = String(req.body?.path || '');
+      if (!Number.isInteger(productId) || productId <= 0 || !path.startsWith(`${productId}/videos/`) || !/\.mp4$/i.test(path)) {
+        throw new Error('Đường dẫn video không hợp lệ.');
+      }
+      const { data: products, error: productError } = await supabase.from('products')
+        .select('images').eq('id', productId).limit(1);
+      if (productError) throw new Error(`Không thể lấy sản phẩm: ${productError.message}`);
+      const product = products?.[0];
+      if (!product) throw new Error('Không tìm thấy sản phẩm để lưu video.');
+      const images = Array.isArray(product.images) ? product.images : [];
+      const existing = images.find((item) => item.media_type === 'video' && item.storage_path === path && item.facebook_attachment_id);
+      if (existing) return res.status(200).json(existing);
+      const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(path);
+      if (!publicUrl?.publicUrl) throw new Error('Không thể tạo URL công khai cho video.');
+      const facebookAttachmentId = await uploadAttachmentToFacebook(publicUrl.publicUrl, 'video');
+      const video = {
+        id: `video-${crypto.createHash('sha256').update(path).digest('hex')}`,
+        media_type: 'video', video_url: publicUrl.publicUrl, storage_path: path,
+        facebook_attachment_id: String(facebookAttachmentId),
+        color: String(req.body?.color || '').trim(), sort_order: Number(req.body?.sort_order || 0)
+      };
+      const { error } = await supabase.from('products').update({
+        images: [...images, video], updated_at: new Date().toISOString()
+      }).eq('id', productId);
+      if (error) throw new Error(`Không thể lưu attachment_id video: ${error.message}`);
+      return res.status(200).json(video);
+    }
+
     if (req.method === 'POST' && action === 'upload_video') {
       const productId = Number(req.query.product_id);
       if (!Number.isInteger(productId) || productId <= 0) throw new Error('Thiếu product_id hợp lệ.');

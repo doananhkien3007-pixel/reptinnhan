@@ -36,6 +36,9 @@
     .images { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .images img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
     .video-item { width: 180px; padding: 12px; box-sizing: border-box; border: 1px solid #e5e7eb; border-radius: 6px; overflow-wrap: anywhere; font-size: 12px; }
+    .attachment-list { display: grid; gap: 7px; margin: 8px 0 18px; }
+    .attachment-row { padding: 9px 11px; border: 1px solid #e5e7eb; border-radius: 7px; background: #f9fafb; font-size: 12px; overflow-wrap: anywhere; }
+    .attachment-row code { user-select: all; color: #111827; }
     .image-item { position: relative; display: inline-flex; flex-direction: column; gap: 2px; font-size: 10px; color: #6b7280; text-align: center; }
     .image-item.primary img { border: 2px solid #1877f2; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr auto; } }
@@ -59,6 +62,8 @@
 
       <h2 style="margin-top:20px">Màu sản phẩm</h2>
       <div id="variants"></div>
+      <h2 style="margin-top:20px">Attachment ID đã lưu</h2>
+      <div id="product-attachment-ids" class="attachment-list"><span class="muted">Lưu hoặc chọn sửa sản phẩm để xem ID.</span></div>
       <h2 style="margin-top:20px">Video sản phẩm</h2>
       <p class="muted">Chọn video MP4. Video được tải lên Facebook và lưu attachment ID.</p>
       <label>Chọn video<input id="product-video-files" type="file" accept="video/mp4,.mp4" multiple></label>
@@ -133,6 +138,7 @@
       $('upload-product-videos').disabled = true;
       $('product-video-status').textContent = 'Lưu sản phẩm để upload video.';
       $('product-videos').innerHTML = '';
+      $('product-attachment-ids').innerHTML = '<span class="muted">Lưu hoặc chọn sửa sản phẩm để xem ID.</span>';
       addVariantRow();
     }
 
@@ -148,8 +154,20 @@
       $('product-video-files').value = '';
       $('upload-product-videos').disabled = false;
       $('product-video-status').textContent = 'Có thể upload thêm video ngay cho sản phẩm này.';
+      renderProductAttachmentIds(product);
       renderProductVideos(product);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderProductAttachmentIds(product) {
+      const media = (product?.images || []).filter((item) => String(item.facebook_attachment_id || '').trim());
+      $('product-attachment-ids').innerHTML = media.length
+        ? media.map((item) => {
+            const type = item.media_type === 'video' ? 'Video' : 'Ảnh';
+            const color = item.color ? ` · Màu ${escapeHtml(item.color)}` : '';
+            return `<div class="attachment-row"><b>${type}${color}</b><br><code>${escapeHtml(item.facebook_attachment_id)}</code></div>`;
+          }).join('')
+        : '<span class="muted">Sản phẩm chưa có attachment ID.</span>';
     }
 
     function renderProductVideos(product) {
@@ -270,12 +288,30 @@
 
     async function uploadVideo(file, productId, color, sortOrder, status) {
       if (!file.size) throw new Error('Video MP4 không được để trống.');
-      status.textContent = `Đang tải video ${file.name} lên Facebook...`;
-      const query = new URLSearchParams({
-        action: 'upload_video', product_id: String(productId), color, sort_order: String(sortOrder)
+      status.textContent = `Đang chuẩn bị tải ${file.name}...`;
+      const prepareResponse = await fetch('/api/products?action=prepare_video_upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: Number(productId), filename: file.name })
       });
-      const response = await fetch(`/api/products?${query}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file
+      const prepared = await prepareResponse.json().catch(() => ({}));
+      if (!prepareResponse.ok || !prepared.signed_url || !prepared.path) {
+        throw new Error(prepared.error || 'Không thể chuẩn bị đường dẫn upload video.');
+      }
+      status.textContent = `Đang tải ${file.name} lên kho lưu trữ...`;
+      const form = new FormData();
+      form.append('cacheControl', '3600');
+      form.append('', file);
+      const storageResponse = await fetch(prepared.signed_url, { method: 'PUT', body: form });
+      if (!storageResponse.ok) {
+        const storageError = await storageResponse.json().catch(() => ({}));
+        throw new Error(storageError.message || storageError.error || `Kho lưu trữ từ chối video (HTTP ${storageResponse.status}).`);
+      }
+      status.textContent = `Đang lấy attachment ID Facebook cho ${file.name}...`;
+      const response = await fetch('/api/products?action=finalize_video_upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: Number(productId), path: prepared.path, color, sort_order: Number(sortOrder)
+        })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Không thể upload video lên Facebook. Hãy thử lại.');

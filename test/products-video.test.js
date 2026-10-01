@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 
 const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypisom0000video')]);
 
-test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', async () => {
+test('upload video qua Storage hoặc chuyển file nhỏ thẳng Facebook và lưu attachment ID', async () => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SECRET_KEY = 'test-secret';
   process.env.PAGE_ACCESS_TOKEN = 'test-page-token';
@@ -23,6 +23,14 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
     const method = init.method || 'GET';
     if (url.hostname === 'graph.facebook.com') {
       assert.match(url.pathname, /\/me\/message_attachments$/);
+      if (init.headers['Content-Type'] === 'application/json') {
+        const payload = JSON.parse(init.body);
+        assert.equal(payload.message.attachment.type, 'video');
+        assert.equal(payload.message.attachment.payload.is_reusable, true);
+        assert.match(payload.message.attachment.payload.url, /\/storage\/v1\/object\/public\/product-images\/7\/videos\//);
+        graphRequests.push(payload);
+        return json(facebookResult, facebookStatus);
+      }
       assert.equal(url.searchParams.has('access_token'), false);
       assert.equal(init.headers.Authorization, 'Bearer test-page-token');
       assert.ok(init.body instanceof FormData);
@@ -35,7 +43,13 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
       graphRequests.push(init.body);
       return json(facebookResult, facebookStatus);
     }
-    if (url.pathname.startsWith('/storage/')) storageRequests.push(url.pathname);
+    if (url.pathname.startsWith('/storage/')) {
+      storageRequests.push(url.pathname);
+      if (url.pathname === '/storage/v1/bucket/product-images') return json({ id: 'product-images', public: true });
+      if (url.pathname.startsWith('/storage/v1/object/upload/sign/product-images/')) {
+        return json({ url: `${url.pathname}?token=signed-token` });
+      }
+    }
     if (url.pathname === '/rest/v1/products') {
       if (method === 'PATCH') { Object.assign(product, JSON.parse(init.body)); return json(null); }
       return json(url.searchParams.get('id') === 'eq.7' ? [product] : []);
@@ -49,6 +63,11 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
       const req = stream ? Readable.from([body.subarray(0, 8), body.subarray(8)]) : { body };
       Object.assign(req, { method: 'POST', query: { action: 'upload_video', product_id: '7', color: 'Đen', sort_order: '2' }, headers: { 'content-type': 'application/octet-stream' } }, overrides);
       await handler(req, res);
+      return res;
+    };
+    const jsonCall = async (action, body) => {
+      const res = { status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } };
+      await handler({ method: 'POST', query: { action }, body, headers: { 'content-type': 'application/json' } }, res);
       return res;
     };
     assert.equal((await call(Buffer.alloc(0))).statusCode, 400);
@@ -84,7 +103,27 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
     assert.equal((await call()).body.id, uploaded.body.id);
     assert.equal(product.images.length, 2);
     assert.equal(graphRequests.length, 4);
-    assert.deepEqual(storageRequests, []);
+
+    const prepared = await jsonCall('prepare_video_upload', { product_id: 7, filename: 'video lớn.mp4' });
+    assert.equal(prepared.statusCode, 200);
+    assert.match(prepared.body.path, /^7\/videos\/.*-video-l-n\.mp4$/);
+    assert.match(prepared.body.signed_url, /token=signed-token/);
+    const finalized = await jsonCall('finalize_video_upload', {
+      product_id: 7, path: prepared.body.path, color: 'Đỏ', sort_order: 4
+    });
+    assert.equal(finalized.statusCode, 200);
+    assert.equal(finalized.body.facebook_attachment_id, 'video-attachment');
+    assert.equal(finalized.body.storage_path, prepared.body.path);
+    assert.equal(finalized.body.color, 'Đỏ');
+    assert.equal(product.images.length, 3);
+    assert.equal(graphRequests.length, 5);
+    const duplicate = await jsonCall('finalize_video_upload', { product_id: 7, path: prepared.body.path });
+    assert.equal(duplicate.body.id, finalized.body.id);
+    assert.equal(graphRequests.length, 5);
+    assert.deepEqual(storageRequests, [
+      '/storage/v1/bucket/product-images',
+      `/storage/v1/object/upload/sign/product-images/${prepared.body.path}`
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;
