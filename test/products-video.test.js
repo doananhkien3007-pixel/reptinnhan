@@ -14,6 +14,7 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
   const product = { images: [{ image_url: 'old.jpg', facebook_attachment_id: 'old-image' }] };
   let facebookResult = { attachment_id: 'video-attachment' };
   let facebookStatus = 200;
+  let expectedVideo = mp4;
   const graphRequests = [];
   const storageRequests = [];
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -30,7 +31,7 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
       });
       const file = init.body.get('filedata');
       assert.equal(file.type, 'video/mp4');
-      assert.deepEqual(Buffer.from(await file.arrayBuffer()), mp4);
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), expectedVideo);
       graphRequests.push(init.body);
       return json(facebookResult, facebookStatus);
     }
@@ -50,7 +51,6 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
       await handler(req, res);
       return res;
     };
-    assert.equal((await call(Buffer.alloc(4 * 1024 * 1024 + 1))).statusCode, 400);
     assert.equal((await call(Buffer.alloc(0))).statusCode, 400);
     assert.equal((await call(Buffer.from('not an mp4 video'))).statusCode, 400);
     assert.equal((await call(mp4, { headers: { 'content-type': 'application/json' } })).statusCode, 400);
@@ -59,6 +59,12 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
     assert.equal(graphRequests.length, 0);
     facebookStatus = 400;
     facebookResult = { error: { message: 'Video rejected' } };
+    const largeMp4 = Buffer.concat([mp4, Buffer.alloc(5 * 1024 * 1024)]);
+    expectedVideo = largeMp4;
+    const largeRejected = await call(largeMp4);
+    assert.equal(largeRejected.statusCode, 400);
+    assert.match(largeRejected.body.error, /Video rejected/);
+    expectedVideo = mp4;
     const rejected = await call();
     assert.equal(rejected.statusCode, 400);
     assert.match(rejected.body.error, /Video rejected/);
@@ -77,7 +83,7 @@ test('upload file thẳng Facebook, chỉ lưu ID và không gọi Storage', asy
     assert.deepEqual(Object.keys(uploaded.body).sort(), ['id', 'media_type', 'facebook_attachment_id', 'color', 'sort_order'].sort());
     assert.equal((await call()).body.id, uploaded.body.id);
     assert.equal(product.images.length, 2);
-    assert.equal(graphRequests.length, 3);
+    assert.equal(graphRequests.length, 4);
     assert.deepEqual(storageRequests, []);
   } finally {
     globalThis.fetch = originalFetch;

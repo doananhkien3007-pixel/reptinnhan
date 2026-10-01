@@ -60,7 +60,7 @@
       <h2 style="margin-top:20px">Màu sản phẩm</h2>
       <div id="variants"></div>
       <h2 style="margin-top:20px">Video sản phẩm</h2>
-      <p class="muted">Chọn video MP4 tối đa 4MB. Video được tải lên Facebook và gửi cho khách sau 2 ảnh.</p>
+      <p class="muted">Chọn video MP4. Video được tải lên Facebook và lưu attachment ID.</p>
       <label>Chọn video<input id="product-video-files" type="file" accept="video/mp4,.mp4" multiple></label>
       <div class="actions">
         <button type="button" id="upload-product-videos" class="secondary" disabled>Upload video</button>
@@ -269,7 +269,7 @@
     }
 
     async function uploadVideo(file, productId, color, sortOrder, status) {
-      if (!file.size || file.size > 4 * 1024 * 1024) throw new Error('Video MP4 phải có dung lượng từ 1 byte đến 4MB.');
+      if (!file.size) throw new Error('Video MP4 không được để trống.');
       status.textContent = `Đang tải video ${file.name} lên Facebook...`;
       const query = new URLSearchParams({
         action: 'upload_video', product_id: String(productId), color, sort_order: String(sortOrder)
@@ -278,7 +278,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || (response.status === 413 ? 'Video vượt quá giới hạn upload. Hãy chọn file tối đa 4MB.' : 'Không thể upload video lên Facebook. Hãy thử lại.'));
+      if (!response.ok) throw new Error(data.error || 'Không thể upload video lên Facebook. Hãy thử lại.');
       return data;
     }
 

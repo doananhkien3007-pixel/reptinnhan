@@ -26,9 +26,6 @@ async function ensureImageBucket(supabase) {
   }
 }
 
-// Leave room below Vercel's 4.5 MB request limit; video requests contain raw bytes.
-const MAX_VIDEO_BYTES = 4 * 1024 * 1024;
-
 async function readVideoBytes(req) {
   if (String(req.headers?.['content-type'] || '').split(';')[0] !== 'application/octet-stream') {
     throw new Error('Upload video phải gửi dữ liệu file trực tiếp.');
@@ -38,18 +35,15 @@ async function readVideoBytes(req) {
     buffer = req.body;
   } else if (req.body === undefined && req[Symbol.asyncIterator]) {
     const chunks = [];
-    let size = 0;
     for await (const chunk of req) {
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      size += bytes.length;
-      if (size > MAX_VIDEO_BYTES) throw new Error('Video vượt quá 4MB.');
       chunks.push(bytes);
     }
     buffer = Buffer.concat(chunks);
   } else {
     throw new Error('Dữ liệu video không hợp lệ.');
   }
-  if (!buffer.length || buffer.length > MAX_VIDEO_BYTES) throw new Error('Video phải có dung lượng từ 1 byte đến 4MB.');
+  if (!buffer.length) throw new Error('Video không được để trống.');
   // ISO BMFF files identify their container in the opening ftyp box.
   if (buffer.length < 12 || buffer.toString('ascii', 4, 8) !== 'ftyp') throw new Error('Hãy chọn file video MP4 hợp lệ.');
   return buffer;

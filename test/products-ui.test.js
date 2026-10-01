@@ -45,8 +45,11 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   assert.equal((await context.uploadVideo(file, 7, 'Đen & đỏ', 0, {})).facebook_attachment_id, 'video-1');
   assert.equal(calls.length, 2);
   assert.ok(calls.every((call) => call.url.startsWith('/api/products?')));
-  await assert.rejects(context.uploadVideo({ size: 4 * 1024 * 1024 + 1 }, 7, 'Đen', 0, {}), /4MB/);
-  assert.equal(calls.length, 2);
+  const largeFile = new Blob(['video bytes'], { type: 'video/mp4' });
+  largeFile.name = 'large.mp4';
+  Object.defineProperty(largeFile, 'size', { value: 8 * 1024 * 1024 });
+  await context.uploadVideo(largeFile, 7, 'Đen & đỏ', 0, {});
+  assert.equal(calls.length, 3);
   vm.runInContext(`products = [{id: 7, name: 'Váy', images: [
     {image_url: 'image.jpg'}, {media_type: 'video', facebook_attachment_id: 'video-1'}
   ]}]; renderProducts();`, context);
@@ -63,7 +66,7 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   elements.get('product-video-files').files = [file];
   listedProducts = [{ id: 7, name: 'Sản phẩm cũ', images: [{ media_type: 'video', facebook_attachment_id: 'video-1' }] }];
   assert.equal(await context.uploadProductVideos(), true);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.match(elements.get('product-videos').innerHTML, /ID: video-1/);
   assert.equal(elements.get('product-video-files').value, '');
   context.clearForm();
