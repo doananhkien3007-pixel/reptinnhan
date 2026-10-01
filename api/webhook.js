@@ -260,11 +260,15 @@ async function sendMessengerMedia(recipientId, media, conversationId, marker) {
   addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
 }
 
-async function waitBetweenReplies() {
+function randomDelay(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+async function waitBetweenReplies(min = 800, max = 1800) {
   const configured = Number(process.env.MESSENGER_SEQUENCE_DELAY_MS);
   const delay = Number.isFinite(configured)
     ? Math.max(0, Math.min(5000, configured))
-    : 1500;
+    : randomDelay(min, max);
   if (delay) await sleep(delay);
 }
 
@@ -272,7 +276,7 @@ async function waitBeforeFirstReply() {
   const configured = Number(process.env.MESSENGER_INITIAL_REPLY_DELAY_MS);
   const delay = Number.isFinite(configured)
     ? Math.max(0, Math.min(10000, configured))
-    : 3000;
+    : randomDelay(2000, 4000);
   if (delay) await sleep(delay);
 }
 
@@ -293,20 +297,20 @@ async function replyToCustomer(recipientId, conversation) {
     const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
     await waitBeforeFirstReply();
     let sentAny = false;
-    const pause = async () => {
-      if (sentAny) await waitBetweenReplies();
+    const pause = async (min, max) => {
+      if (sentAny) await waitBetweenReplies(min, max);
       sentAny = true;
     };
     for (const { image, marker } of latest.images) {
-      await pause();
+      await pause(800, 1600);
       await sendMessengerMedia(recipientId, image, conversation.id, marker);
     }
     for (const { video, marker } of latest.videos) {
-      await pause();
+      await pause(1500, 2500);
       await sendMessengerMedia(recipientId, video, conversation.id, marker);
     }
-    for (const text of latest.messages) {
-      await pause();
+    for (const [index, text] of latest.messages.entries()) {
+      await pause(index === 0 ? 1200 : 1000, index === 0 ? 2200 : 2000);
       await sendMessengerMessage(recipientId, text, conversation.id);
     }
     // Chỉ chuyển liên kết sản phẩm sau khi tư vấn đủ, tránh nhận nhầm marker mẫu cũ khi thử lại.
