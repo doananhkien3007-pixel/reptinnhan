@@ -1,5 +1,6 @@
 // api/webhook.js
 import { generateReply } from './services/ai-reply.js';
+import { withTypingDelay } from './services/messenger-typing.js';
 import { getSupabase } from './services/supabase.js';
 import { planIntroduction } from './services/product-introduction.js';
 import { getAdReferral } from './services/ad-referral.js';
@@ -205,26 +206,28 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
     throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
   }
 
-  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { text }
-    })
-  });
+  return withTypingDelay(recipientId, text, async () => {
+    const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        message: { text }
+      })
+    });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Facebook API ${response.status}: ${errorBody}`);
-  }
-  addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
-  if (conversationId) {
-    await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text });
-  } else {
-    await saveMessage(recipientId, 'outbound', text);
-  }
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Facebook API ${response.status}: ${errorBody}`);
+    }
+    addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
+    if (conversationId) {
+      await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text });
+    } else {
+      await saveMessage(recipientId, 'outbound', text);
+    }
+  });
 }
 
 async function sendMessengerMedia(recipientId, media, conversationId, marker) {

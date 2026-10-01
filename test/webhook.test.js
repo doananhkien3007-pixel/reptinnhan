@@ -7,6 +7,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
   process.env.SUPABASE_SECRET_KEY = 'test-secret';
   process.env.PAGE_ACCESS_TOKEN = 'test-page-token';
   process.env.OPENAI_API_KEY = 'test-openai-key';
+  process.env.MESSENGER_TYPING_DELAY_MS = '0';
 
   const product = {
     id: 7,
@@ -52,6 +53,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     }
     if (url.hostname === 'graph.facebook.com') {
       const payload = JSON.parse(init.body);
+      if (payload.sender_action) return json({ recipient_id: 'customer' });
       await new Promise((resolve) => setTimeout(resolve, 5));
       if (failAttachmentOnce && payload.message?.attachment?.payload?.attachment_id === failAttachmentOnce) {
         failAttachmentOnce = null;
