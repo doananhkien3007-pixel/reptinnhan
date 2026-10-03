@@ -15,6 +15,10 @@ Webhook hiện gọi AI cho mỗi tin mới khi bật trả lời tự động, 
 
 Chọn khách → **Cấu hình trợ lý AI** → **Thử cách AI trả lời**. Nhập một tin ví dụ và bấm **Thử phản hồi**. Dùng hướng dẫn đã lưu; trả về ý định, sản phẩm, nội dung và số media dự kiến. Không gửi Messenger, không sửa hội thoại hay sản phẩm của khách.
 
+Khung thử nhớ tối đa 10 lượt trong phiên trang hiện tại, bao gồm số đo, lựa chọn và sản phẩm đã nhắc. Bấm **Bắt đầu lại**, chuyển khách hoặc tải lại trang sẽ xóa các lượt thử. Lịch sử thử chỉ dùng làm ngữ cảnh và không ghi vào database.
+
+Bot được hướng dẫn đưa đề xuất cụ thể, không tự thêm câu “chị có muốn xem hình/tư vấn thêm không”. Chỉ hỏi một thông tin thực sự còn thiếu để giải quyết nhu cầu hiện tại, không xin thông tin đặt hàng khi khách mới hỏi size. Lớp lọc cuối loại câu mời chung chung hoặc câu hỏi cuối lặp nguyên văn trong các phản hồi gần đây khi vẫn còn phần trả lời có nghĩa. Lớp lọc này không bảo đảm phát hiện mọi cách diễn đạt lặp; chất lượng tư vấn vẫn cần kiểm tra với model thật.
+
 API thử: `POST /api/webhook?action=preview_reply`, body `{ "message": "chị 53kg mặc size gì", "sender_id": "PSID đã có" }`. Bỏ `sender_id` để thử không có lịch sử khách.
 
 ## Cấu hình triển khai

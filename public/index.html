@@ -52,7 +52,9 @@
       <label class="field-label" for="preview-message">Tin nhắn của khách</label>
       <textarea id="preview-message" rows="3" maxlength="4000" placeholder="Ví dụ: chị 53kg cao 1m60 mặc size nào em?"></textarea>
       <button id="preview-reply" class="btn btn-primary" type="button">Thử phản hồi</button>
-      <p class="preview-note">Dùng hướng dẫn đã lưu. Bản thử không gửi tin cho khách hoặc lưu vào hội thoại.</p>
+      <button id="preview-reset" class="btn" type="button">Bắt đầu lại</button>
+      <p class="preview-note">Dùng hướng dẫn đã lưu. Nhớ tối đa 10 lượt thử trong phiên này; không gửi tin cho khách hoặc lưu vào hội thoại.</p>
+      <p id="preview-memory" class="preview-note" role="status">Chưa có lượt thử.</p>
       <div id="preview-result" role="status" aria-live="polite" hidden></div>
     </section>
   </dialog>

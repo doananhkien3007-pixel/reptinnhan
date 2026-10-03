@@ -23,11 +23,15 @@ export function describeProduct(product) {
   })].join('\n');
 }
 
-export async function getReplyContext(conversation, text, { currentMessageSaved = true, persistProduct = true } = {}) {
+export async function getReplyContext(conversation, text, { currentMessageSaved = true, persistProduct = true, additionalHistory = [] } = {}) {
   const [products, storedHistory] = await Promise.all([
     listProducts({ includeInactive: false }), conversation.id ? getRecentConversationMessages(conversation.id, 60) : []
   ]);
-  const product = chooseConversationProduct(products, conversation, text);
+  const simulatedConversation = { ...conversation };
+  for (const message of additionalHistory.filter(item => item.direction === 'inbound')) {
+    simulatedConversation.current_product_id = chooseConversationProduct(products, simulatedConversation, message.text)?.id || null;
+  }
+  const product = chooseConversationProduct(products, simulatedConversation, text);
   if (product && persistProduct && String(product.id) !== String(conversation.current_product_id)) {
     await updateConversationProduct(conversation.id, product.id);
   }
@@ -37,6 +41,7 @@ export async function getReplyContext(conversation, text, { currentMessageSaved 
     const index = history.findLastIndex(message => message.direction === 'inbound' && message.text === text);
     if (index >= 0) history.splice(index, 1);
   }
+  history.push(...additionalHistory);
   const media = [...new Map((product?.images || [])
     .filter(item => String(item.facebook_attachment_id || '').trim())
     .map(item => [String(item.facebook_attachment_id).trim(), item])).values()];

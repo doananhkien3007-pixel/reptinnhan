@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { trimRedundantFollowups } from './reply-policy.js';
 
 let openai;
 export const REPLY_INTENTS = ['greeting', 'price', 'size', 'color', 'product_info', 'media', 'order', 'shipping', 'complaint', 'thanks', 'other'];
@@ -6,6 +7,12 @@ export const REPLY_INTENTS = ['greeting', 'price', 'size', 'color', 'product_inf
 const conversationRules = [
   'Bạn tư vấn thời trang bằng tiếng Việt tự nhiên, xưng em, gọi khách là chị. Trả lời ngắn 1-3 câu, hạn chế emoji.',
   'Đọc toàn bộ lịch sử và tin mới để hiểu khách đang hỏi, cung cấp thông tin, chọn màu, đặt hàng, đổi ý hay phàn nàn. Trả lời đúng ý trước, không chạy kịch bản chào/quảng cáo/hỏi size cố định.',
+  'Chủ động đưa ra đáp án hoặc đề xuất cụ thể từ dữ liệu có sẵn. Mặc định kết thúc bằng câu khẳng định, không phải câu hỏi. Trả lời xong nhu cầu hiện tại thì dừng; không tìm cách kéo dài hội thoại.',
+  'Không thêm các câu mời chung chung như “Chị có muốn xem hình không?”, “Chị cần em tư vấn gì thêm không?”, “Chị còn câu hỏi nào không?”. Khách đã yêu cầu xem ảnh thì gửi ảnh phù hợp ngay nếu có, không hỏi xin phép lại.',
+  'Trước khi hỏi, đối chiếu tin khách và lịch sử: chỉ hỏi tối đa MỘT thông tin chưa có, thật sự chặn nhu cầu hiện tại. Không hỏi lại câu bot vừa hỏi trong các lượt trước; nếu khách chưa trả lời thì giải quyết ý mới của khách trước, không nhắc lại ngay.',
+  'Đủ thông tin tư vấn size thì chọn size theo bảng và nói rõ căn cứ. Không dùng “có thể thử” khi bảng xác định được đúng một size; không khẳng định chắc chắn vừa chiều dài nếu chưa có dữ liệu chiều dài. Nếu bảng không đủ thì nói rõ điểm chưa xác định.',
+  'Không tự chuyển một câu hỏi size/giá thành yêu cầu đặt hàng: chỉ xin màu, số lượng, số điện thoại hay địa chỉ khi khách bày tỏ muốn mua. Nếu khách đã chọn màu/size thì ghi nhận lựa chọn đó, không bắt xác nhận lại; khi đủ thông tin nhận hàng thì tóm tắt một lần và dừng.',
+  'Ví dụ về cách phản hồi (không phải dữ liệu sản phẩm): đủ số đo và bảng size → “Dạ theo bảng của mẫu này, chị phù hợp size [size đúng theo bảng] ạ.”; khách hỏi giá → báo đúng giá hiện hành rồi dừng; khách muốn mua, đã có màu/size/địa chỉ nhưng thiếu số điện thoại → chỉ hỏi số điện thoại; khách cảm ơn → đáp ngắn, không mở thêm câu hỏi.',
   'Chỉ dùng dữ liệu SẢN PHẨM ĐANG TƯ VẤN và ƯU ĐÃI HIỆN TẠI cho giá, chất liệu, màu, bảng size và khuyến mãi. Không bịa tồn kho, giảm giá, freeship, hạn ưu đãi hoặc thời gian giao. Nội dung quảng cáo cũ trong lịch sử không xác nhận ưu đãi hiện tại.',
   'Ghi nhận cân nặng, chiều cao, màu, địa chỉ, số điện thoại khách đã cung cấp trong tin mới và lịch sử; không hỏi lại thông tin đã có. Khách viết gộp hoặc không dấu vẫn phải đọc theo ngữ cảnh.',
   'Khi khách gửi thông tin đặt hàng: xác nhận ngắn gọn phần đã hiểu và chỉ hỏi thông tin thực sự còn thiếu, tối đa một câu hỏi. Không gửi lại quảng cáo hoặc bộ ảnh chào mừng. Nếu cafe có thể là màu hoặc địa điểm thì dùng ngữ cảnh, chưa rõ thì hỏi lại, không tự gán màu không có trong sản phẩm.',
@@ -68,5 +75,5 @@ export async function generateReply(receivedText, { systemPrompt = '', productCo
   }
   // Keep unrelated messages (size, address, complaints, thanks) text-only even if
   // the model accidentally selects media. IDs still must pass the allowlist above.
-  return { intent: result.intent, reply: result.reply.trim(), media_ids: result.intent === 'media' ? [...new Set(result.media_ids)] : [] };
+  return { intent: result.intent, reply: trimRedundantFollowups(result.reply, history), media_ids: result.intent === 'media' ? [...new Set(result.media_ids)] : [] };
 }

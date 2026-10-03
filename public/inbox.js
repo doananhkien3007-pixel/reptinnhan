@@ -9,6 +9,16 @@ let autoReplyEnabled = null;
 let togglingReply = false;
 let promptLoaded = false;
 let previewSenderId = null;
+let previewHistory = [];
+let previewVersion = 0;
+
+function resetPreview() {
+  previewHistory = [];
+  previewVersion++;
+  $('preview-message').value = '';
+  $('preview-result').hidden = true;
+  $('preview-memory').textContent = 'Chưa có lượt thử.';
+}
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -182,28 +192,37 @@ async function loadSystemPrompt() {
 }
 
 $('open-settings').addEventListener('click', () => {
+  if (previewSenderId !== selectedId) resetPreview();
   previewSenderId = selectedId;
   const customer = conversations.find(item => item.senderId === previewSenderId);
   $('preview-context').textContent = customer ? 'Ngữ cảnh: ' + customerLabel(customer) + ' và lịch sử hội thoại đã lưu.' : 'Thử với dữ liệu sản phẩm. Chọn khách trong hộp thư để thử cùng ngữ cảnh của khách.';
   $('settings-dialog').showModal();
   if (!promptLoaded) loadSystemPrompt();
 });
+$('preview-reset').addEventListener('click', resetPreview);
 $('preview-reply').addEventListener('click', async () => {
   const result = $('preview-result');
   const message = $('preview-message').value.trim();
   result.hidden = false;
   result.classList.remove('error');
   if (!message) { result.textContent = 'Nhập tin nhắn khách để thử phản hồi.'; return; }
+  const version = previewVersion;
   $('preview-reply').disabled = true;
+  $('preview-reset').disabled = true;
   result.textContent = 'AI đang đọc ngữ cảnh và soạn trả lời…';
   try {
-    const data = await api('preview_reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, sender_id: previewSenderId }) });
+    const data = await api('preview_reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, sender_id: previewSenderId, preview_history: previewHistory }) });
+    if (version !== previewVersion) return;
+    previewHistory = [...previewHistory, { direction: 'inbound', text: message }, { direction: 'outbound', text: data.reply }].slice(-20);
+    $('preview-memory').textContent = 'Đang nhớ ' + previewHistory.length / 2 + ' lượt thử. Nhập tin tiếp theo để tiếp tục hội thoại.';
+    if ($('preview-message').value.trim() === message) $('preview-message').value = '';
     const intents = { greeting: 'Chào hỏi', price: 'Hỏi giá', size: 'Tư vấn size', color: 'Chọn màu', product_info: 'Thông tin sản phẩm', media: 'Xem ảnh/video', order: 'Đặt hàng', shipping: 'Giao hàng', complaint: 'Góp ý / khiếu nại', thanks: 'Cảm ơn', other: 'Trao đổi khác' };
     result.textContent = 'AI hiểu: ' + (intents[data.intent] || 'Trao đổi') + (data.product_name ? ' · ' + data.product_name : '') + '\n\n' + data.reply + (data.media_ids?.length ? '\n\nDự kiến gửi kèm ' + data.media_ids.length + ' ảnh/video.' : '');
-  } catch (error) { result.classList.add('error'); result.textContent = error.message; }
+  } catch (error) { if (version === previewVersion) { result.classList.add('error'); result.textContent = error.message; } }
   finally {
     $('preview-reply').disabled = false;
-    if ($('settings-dialog').open) result.scrollIntoView({ block: 'nearest' });
+    $('preview-reset').disabled = false;
+    if ($('settings-dialog').open && version === previewVersion) result.scrollIntoView({ block: 'nearest' });
   }
 });
 $('save-prompt').addEventListener('click', async () => {

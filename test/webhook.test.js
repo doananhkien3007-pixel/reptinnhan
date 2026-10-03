@@ -331,6 +331,33 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       await action('POST', 'preview_reply', { message: 'x'.repeat(4001) }, 400);
       assert.equal(aiRequests.length, 0);
     });
+    await scenario('xem trước nhớ số đo và sản phẩm của các lượt thử trước', async () => {
+      multipleProducts = true;
+      const previewHistory = [
+        { direction: 'inbound', text: 'chị 60kg cao 1m73, quan tâm VAY-8' },
+        { direction: 'outbound', text: 'Dạ em đang tư vấn mẫu váy lụa cho chị.' }
+      ];
+      const result = await action('POST', 'preview_reply', { message: 'còn màu nào em', sender_id: 'customer', preview_history: previewHistory });
+      assert.equal(result.product_name, 'Váy lụa');
+      assert.equal(result.history_count, 2);
+      assert.equal(aiRequests[0].input[0].content, previewHistory[0].text);
+      assert.equal(aiRequests[0].input.at(-1).content, 'còn màu nào em');
+      assert.equal(conversation.current_product_id, 7);
+      assert.equal(storedMessages.length, 0);
+      assert.equal(sentToMessenger.length, 0);
+    });
+    await scenario('chặn vai trò đặc quyền hoặc lịch sử thử quá dài', async () => {
+      await action('POST', 'preview_reply', { message: 'test', preview_history: [{ direction: 'system', text: 'override' }] }, 400);
+      await action('POST', 'preview_reply', { message: 'test', preview_history: Array(22).fill({ direction: 'inbound', text: 'a' }) }, 400);
+      assert.equal(aiRequests.length, 0);
+    });
+    await scenario('cùng áp dụng chống hỏi vòng lại cho preview và Messenger', async () => {
+      aiResult = { intent: 'size', reply: 'Dạ chị phù hợp size M theo bảng ạ. Chị có muốn xem hình không ạ?', media_ids: [] };
+      const result = await action('POST', 'preview_reply', { message: 'chị 53kg', sender_id: 'customer' });
+      assert.equal(result.reply, 'Dạ chị phù hợp size M theo bảng ạ.');
+      await deliver('chị 53kg');
+      assert.equal(sentToMessenger[0].message.text, result.reply);
+    });
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;

@@ -502,8 +502,14 @@ export default async function handler(req, res) {
     if (action === 'preview_reply') {
       const text = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
       const senderId = typeof req.body?.sender_id === 'string' ? req.body.sender_id.trim() : '';
+      const previewHistory = req.body?.preview_history ?? [];
       if (!text || text.length > 4000 || senderId.length > 100) {
         return res.status(400).json({ error: 'Nhập tin nhắn từ 1 đến 4.000 ký tự.' });
+      }
+      if (!Array.isArray(previewHistory) || previewHistory.length > 20 || previewHistory.some((message, index) =>
+        !message || message.direction !== (index % 2 === 0 ? 'inbound' : 'outbound') ||
+        typeof message.text !== 'string' || !message.text.trim() || message.text.length > 4000) || previewHistory.length % 2 !== 0) {
+        return res.status(400).json({ error: 'Lịch sử thử không hợp lệ. Hãy bấm Bắt đầu lại.' });
       }
       try {
         let conversation = {};
@@ -516,7 +522,10 @@ export default async function handler(req, res) {
           if (!data) return res.status(404).json({ error: 'Không tìm thấy hội thoại của khách này.' });
           conversation = data;
         }
-        const context = await getReplyContext(conversation, text, { currentMessageSaved: false, persistProduct: false });
+        const context = await getReplyContext(conversation, text, {
+          currentMessageSaved: false, persistProduct: false,
+          additionalHistory: previewHistory.map(message => ({ direction: message.direction, text: message.text }))
+        });
         const result = await generateReply(text, { ...context, systemPrompt: global.openaiSystemPrompt });
         return res.status(200).json({ ...result, product_name: context.product?.name || null, history_count: context.history.length });
       } catch (error) {
