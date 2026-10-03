@@ -15,7 +15,7 @@
     .message-meta { margin: 0 5px 4px; font-size: 11px; color: #65676b; }
     .conversation-group { margin-bottom: 18px; border: 1px solid #dfe3e8; border-radius: 12px; overflow: hidden; background: #fafbfc; }
     .conversation-label { display: flex; align-items: center; gap: 10px; padding: 11px 13px; background: #f0f5ff; border-bottom: 1px solid #d9e5fb; }
-    .conversation-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: #1877f2; color: white; font-weight: bold; }
+    .conversation-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: #1877f2; color: white; font-weight: bold; object-fit: cover; }
     .conversation-info { min-width: 0; flex: 1; }
     .conversation-info strong { display: block; color: #0f4fa8; font-size: 13px; overflow-wrap: anywhere; }
     .conversation-ad { margin-top: 2px; color: #65676b; font-size: 11px; overflow-wrap: anywhere; }
@@ -85,8 +85,8 @@
           const latestAdId = [...conversation.adIds].at(-1);
           return '<section class="conversation-group">' +
             '<header class="conversation-label">' +
-              '<div class="conversation-avatar">K</div>' +
-              '<div class="conversation-info"><strong>Khách · ID ' + escapeHtml(conversation.senderId) + '</strong>' +
+              (conversation.profilePic ? '<img class="conversation-avatar" src="' + escapeHtml(conversation.profilePic) + '" alt="">' : '<div class="conversation-avatar">K</div>') +
+              '<div class="conversation-info"><strong>' + escapeHtml(conversation.customerName || 'Khách') + ' · ID ' + escapeHtml(conversation.senderId) + '</strong>' +
                 '<div class="conversation-ad">' + (latestAdId ? 'Ads ID: ' + escapeHtml(latestAdId) : 'Chưa có Ads ID') + '</div></div>' +
               '<span class="message-count">' + conversation.messages.length + ' tin</span>' +
             '</header>' +
@@ -116,9 +116,11 @@
       for (const message of messages) {
         const senderId = String(message.senderId || 'unknown');
         if (!conversations.has(senderId)) {
-          conversations.set(senderId, { senderId, adIds: new Set(), messages: [] });
+          conversations.set(senderId, { senderId, customerName: null, profilePic: null, adIds: new Set(), messages: [] });
         }
         const conversation = conversations.get(senderId);
+        if (message.customerName) conversation.customerName = message.customerName;
+        if (message.profilePic) conversation.profilePic = message.profilePic;
         if (message.adId) conversation.adIds.add(String(message.adId));
         conversation.messages.push(message);
       }

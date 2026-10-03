@@ -10,7 +10,7 @@ test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội
     style: {}, scrollTop: 0, scrollHeight: 0, addEventListener() {}, classList: { toggle() {} }
   });
   const messages = [
-    { senderId: 'customer-1', adId: 'ad-10', direction: 'outbound', text: 'Chào chị', time: '10:00:00' },
+    { senderId: 'customer-1', customerName: 'Nguyễn Lan', profilePic: 'https://img.example/lan.jpg', adId: 'ad-10', direction: 'outbound', text: 'Chào chị', time: '10:00:00' },
     { senderId: 'customer-1', adId: 'ad-10', direction: 'inbound', text: 'Còn màu đen không?', time: '10:01:00' },
     { senderId: 'customer-2', adId: null, direction: 'inbound', text: 'Xin giá', time: '10:02:00' }
   ];
@@ -34,7 +34,8 @@ test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội
   assert.equal(grouped[0].messages.length, 2);
   assert.deepEqual([...grouped[0].adIds], ['ad-10']);
   const rendered = elements.get('chat-box').innerHTML;
-  assert.equal((rendered.match(/Khách · ID customer-1/g) || []).length, 1);
+  assert.equal((rendered.match(/Nguyễn Lan · ID customer-1/g) || []).length, 1);
+  assert.match(rendered, /https:\/\/img\.example\/lan\.jpg/);
   assert.match(rendered, /2 tin/);
   assert.match(rendered, /Bot gửi · 10:00:00/);
   assert.match(rendered, /Khách gửi · 10:01:00/);

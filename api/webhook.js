@@ -7,6 +7,7 @@ import { planIntroduction } from '../server/product-introduction.js';
 import { getAdReferral } from '../server/ad-referral.js';
 import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim } from '../server/welcome-claim.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
+import { syncFacebookProfile } from '../server/facebook-profile.js';
 import {
   getOrCreateConversation,
   getMainProduct,
@@ -139,30 +140,69 @@ async function getStoredMessages() {
     .limit(200);
   if (error) throw new Error(`Không thể đọc tin nhắn Supabase: ${error.message}`);
   const conversationIds = [...new Set((data || []).map((message) => message.conversation_id).filter(Boolean))];
-  const adsByConversation = new Map();
+  const profilesByConversation = new Map();
+  const profileCandidates = new Map();
   if (conversationIds.length) {
-    const { data: conversations, error: adError } = await client.from('conversations')
-      .select('id, ad_id').in('id', conversationIds);
+    let { data: conversations, error: adError } = await client.from('conversations')
+      .select('id, external_user_id, ad_id, facebook_name, facebook_profile_pic, profile_updated_at').in('id', conversationIds);
+    if (adError) {
+      const fallback = await client.from('conversations').select('id, external_user_id, ad_id').in('id', conversationIds);
+      conversations = fallback.data;
+      adError = fallback.error;
+    }
     if (adError) throw new Error(`Không thể đọc Ads ID: ${adError.message}`);
-    for (const conversation of conversations || []) adsByConversation.set(conversation.id, conversation.ad_id);
+    for (const conversation of conversations || []) profilesByConversation.set(conversation.id, {
+      adId: conversation.ad_id,
+      customerName: conversation.facebook_name || null,
+      profilePic: conversation.facebook_profile_pic || null
+    });
+    for (const conversation of conversations || []) {
+      if (!conversation.facebook_name && conversation.external_user_id) profileCandidates.set(conversation.id, conversation);
+    }
   }
   // Tin nhắn được lưu trước khi có conversation_id vẫn thuộc về cùng khách hàng.
   const senderIds = [...new Set((data || [])
-    .filter((message) => !adsByConversation.get(message.conversation_id))
+    .filter((message) => !profilesByConversation.get(message.conversation_id)?.adId)
     .map((message) => message.sender_id)
     .filter(Boolean))];
-  const adsBySender = new Map();
+  const profilesBySender = new Map();
   if (senderIds.length) {
-    const { data: conversations, error: adError } = await client.from('conversations')
-      .select('external_user_id, ad_id')
+    let { data: conversations, error: adError } = await client.from('conversations')
+      .select('id, external_user_id, ad_id, facebook_name, facebook_profile_pic, profile_updated_at')
       .eq('channel', 'facebook')
       .in('external_user_id', senderIds);
+    if (adError) {
+      const fallback = await client.from('conversations').select('id, external_user_id, ad_id')
+        .eq('channel', 'facebook').in('external_user_id', senderIds);
+      conversations = fallback.data;
+      adError = fallback.error;
+    }
     if (adError) throw new Error(`Không thể đọc Ads ID theo khách hàng: ${adError.message}`);
-    for (const conversation of conversations || []) adsBySender.set(conversation.external_user_id, conversation.ad_id);
+    for (const conversation of conversations || []) profilesBySender.set(conversation.external_user_id, {
+      adId: conversation.ad_id,
+      customerName: conversation.facebook_name || null,
+      profilePic: conversation.facebook_profile_pic || null
+    });
+    for (const conversation of conversations || []) {
+      if (!conversation.facebook_name && conversation.external_user_id) profileCandidates.set(conversation.id, conversation);
+    }
+  }
+  if (profileCandidates.size) {
+    const enrichedProfiles = await Promise.all([...profileCandidates.values()].slice(0, 10).map(syncFacebookProfile));
+    for (const conversation of enrichedProfiles) {
+      const profile = {
+        adId: conversation.ad_id || null,
+        customerName: conversation.facebook_name || null,
+        profilePic: conversation.facebook_profile_pic || null
+      };
+      profilesByConversation.set(conversation.id, profile);
+      profilesBySender.set(conversation.external_user_id, profile);
+    }
   }
   return (data || []).reverse().map((message) => ({
+    ...(profilesByConversation.get(message.conversation_id) || profilesBySender.get(message.sender_id) || {}),
     senderId: message.sender_id,
-    adId: adsByConversation.get(message.conversation_id) || adsBySender.get(message.sender_id) || null,
+    adId: profilesByConversation.get(message.conversation_id)?.adId || profilesBySender.get(message.sender_id)?.adId || null,
     direction: message.direction,
     text: message.text,
     time: new Date(message.message_time).toLocaleTimeString('vi-VN', {
@@ -529,6 +569,7 @@ export default async function handler(req, res) {
               let contextReady = false;
               try {
                 conversation ||= await getOrCreateConversation(senderPsid);
+                conversation = await syncFacebookProfile(conversation);
                 await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
                 contextReady = true;
                 await trace?.patch({ product_id: conversation.current_product_id || null });
