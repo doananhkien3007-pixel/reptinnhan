@@ -6,6 +6,7 @@ import { getSupabase } from './services/supabase.js';
 import { planIntroduction } from './services/product-introduction.js';
 import { getAdReferral } from './services/ad-referral.js';
 import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim } from './services/welcome-claim.js';
+import { createWorkflowTrace } from './services/workflow-trace.js';
 import {
   getOrCreateConversation,
   getMainProduct,
@@ -280,21 +281,49 @@ async function waitBeforeFirstReply() {
   if (delay) await sleep(delay);
 }
 
-async function replyToCustomer(recipientId, conversation) {
-  const product = await getMainProduct();
-  const texts = await getAllSentTexts(recipientId);
-  // Chỉ công nhận marker cũ không có mã sản phẩm nếu hội thoại đang gắn đúng mẫu.
-  const allowLegacy = String(conversation.current_product_id) === String(product.id);
-  const plan = planIntroduction(product, texts, { allowLegacy });
-  if (!plan.images.length && !plan.videos.length && !plan.messages.length) {
-    addTaskLog('Auto-reply', `Khách ${recipientId} đã nhận đủ 2 ảnh, video, giá, ưu đãi, chất vải và câu hỏi cân nặng/chiều cao; hoàn tất.`);
-    return;
-  }
-  // Khóa riêng cho nhiệm vụ mới; trạng thái complete của lời chào cũ không bỏ sót câu hỏi size.
-  const claim = await acquireWelcomeClaim(recipientId, `bot_intro_v2:${product.id}`, { reopenComplete: true });
-  if (!claim) return;
+async function replyToCustomer(recipientId, conversation, trace) {
+  let stage = 'ai_agent';
+  let claim = null;
   try {
+    // The current welcome flow is deterministic. Keep the AI node visible in the
+    // fixed operational graph while reporting its actual mode to telemetry.
+    await trace.nodeStarted('ai_agent', { mode: 'deterministic_policy' });
+    const product = await getMainProduct();
+    const texts = await getAllSentTexts(recipientId);
+    await trace.patch({ product_id: product.id, product_name: product.name });
+    await trace.nodeCompleted('ai_agent', { mode: 'deterministic_policy' });
+    await trace.edgeTransfer('ai_agent', 'business_logic');
+
+    stage = 'business_logic';
+    await trace.nodeStarted('business_logic');
+    // Chỉ công nhận marker cũ không có mã sản phẩm nếu hội thoại đang gắn đúng mẫu.
+    const allowLegacy = String(conversation.current_product_id) === String(product.id);
+    const plan = planIntroduction(product, texts, { allowLegacy });
+    if (!plan.images.length && !plan.videos.length && !plan.messages.length) {
+      addTaskLog('Auto-reply', `Khách ${recipientId} đã nhận đủ 2 ảnh, video, giá, ưu đãi, chất vải và câu hỏi cân nặng/chiều cao; hoàn tất.`);
+      await trace.nodeCompleted('business_logic', { action_count: 0, reason: 'already_complete' });
+      await trace.edgeTransfer('business_logic', 'send_messenger');
+      await trace.nodeStarted('send_messenger', { action_count: 0 });
+      await trace.nodeCompleted('send_messenger', { action_count: 0 });
+      await trace.edgeTransfer('send_messenger', 'completed');
+      await trace.nodeStarted('completed');
+      await trace.nodeCompleted('completed');
+      await trace.complete({ reason: 'already_complete' });
+      return;
+    }
+    // Khóa riêng cho nhiệm vụ mới; trạng thái complete của lời chào cũ không bỏ sót câu hỏi size.
+    claim = await acquireWelcomeClaim(recipientId, `bot_intro_v2:${product.id}`, { reopenComplete: true });
+    if (!claim) {
+      await trace.nodeCompleted('business_logic', { reason: 'duplicate_execution' });
+      await trace.complete({ reason: 'duplicate_execution' });
+      return;
+    }
     const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
+    const actionCount = latest.images.length + latest.videos.length + latest.messages.length;
+    await trace.nodeCompleted('business_logic', { action_count: actionCount });
+    await trace.edgeTransfer('business_logic', 'send_messenger');
+    stage = 'send_messenger';
+    await trace.nodeStarted('send_messenger', { action_count: actionCount });
     await waitBeforeFirstReply();
     let sentAny = false;
     const pause = async (min, max) => {
@@ -316,9 +345,15 @@ async function replyToCustomer(recipientId, conversation) {
     // Chỉ chuyển liên kết sản phẩm sau khi tư vấn đủ, tránh nhận nhầm marker mẫu cũ khi thử lại.
     await updateConversationProduct(conversation.id, product.id);
     await completeWelcomeClaim(claim);
+    await trace.nodeCompleted('send_messenger', { action_count: actionCount });
+    await trace.edgeTransfer('send_messenger', 'completed');
+    await trace.nodeStarted('completed');
+    await trace.nodeCompleted('completed');
+    await trace.complete({ product_id: product.id, action_count: actionCount });
     addTaskLog('Auto-reply', `Đã tư vấn đủ sản phẩm ${product.name} cho khách ${recipientId}; bot dừng trả lời.`);
   } catch (error) {
-    await releaseWelcomeClaim(claim);
+    if (claim) await releaseWelcomeClaim(claim);
+    await trace.nodeError(stage, error);
     throw error;
   }
 }
@@ -432,7 +467,29 @@ export default async function handler(req, res) {
             const senderPsid = webhookEvent.sender?.id;
             if (!senderPsid) continue;
             if (webhookEvent.message?.is_echo) continue;
+            // Tin nhắn đầu tiên có thể là chữ, ảnh, sticker hoặc nút bắt đầu.
+            const receivedText = webhookEvent.message?.text?.trim()
+              || (webhookEvent.message?.attachments?.length ? '[Khách gửi ảnh hoặc tệp]' : null)
+              || (webhookEvent.postback ? webhookEvent.postback.title || webhookEvent.postback.payload || '[Khách bấm nút]' : null);
+            const trace = channel === 'messaging' && receivedText
+              ? await createWorkflowTrace({ customerId: senderPsid, message: receivedText })
+              : null;
+            if (trace) {
+              await trace.nodeStarted('facebook_webhook');
+              await trace.nodeCompleted('facebook_webhook');
+              await trace.edgeTransfer('facebook_webhook', 'parse_message');
+              await trace.nodeStarted('parse_message');
+              await trace.nodeCompleted('parse_message', { message_type: webhookEvent.postback ? 'postback' : webhookEvent.message?.attachments?.length ? 'attachment' : 'text' });
+              await trace.edgeTransfer('parse_message', 'detect_ad');
+              await trace.nodeStarted('detect_ad');
+            }
             const { adId, location, source } = getAdReferral(webhookEvent);
+            if (trace) {
+              await trace.patch({ ad_id: adId });
+              await trace.nodeCompleted('detect_ad', { ad_id: adId, referral_location: location });
+              await trace.edgeTransfer('detect_ad', 'find_product');
+              await trace.nodeStarted('find_product');
+            }
             let conversation = null;
             if (adId) {
               try {
@@ -455,10 +512,6 @@ export default async function handler(req, res) {
 
             if (channel === 'standby') continue;
 
-            // Tin nhắn đầu tiên có thể là chữ, ảnh, sticker hoặc nút bắt đầu.
-            const receivedText = webhookEvent.message?.text?.trim()
-              || (webhookEvent.message?.attachments?.length ? '[Khách gửi ảnh hoặc tệp]' : null)
-              || (webhookEvent.postback ? webhookEvent.postback.title || webhookEvent.postback.payload || '[Khách bấm nút]' : null);
             if (receivedText) {
               addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
 
@@ -478,8 +531,14 @@ export default async function handler(req, res) {
                 conversation ||= await getOrCreateConversation(senderPsid);
                 await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
                 contextReady = true;
+                await trace?.patch({ product_id: conversation.current_product_id || null });
+                await trace?.nodeCompleted('find_product', { product_id: conversation.current_product_id || null });
+                await trace?.edgeTransfer('find_product', 'check_auto_reply');
+                await trace?.nodeStarted('check_auto_reply');
+                await trace?.nodeCompleted('check_auto_reply', { enabled: autoReplyEnabled });
               } catch (error) {
                 addTaskLog('Supabase', error.message);
+                await trace?.nodeError('find_product', error);
               }
 
               console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
@@ -488,7 +547,8 @@ export default async function handler(req, res) {
               if (autoReplyEnabled) {
                 try {
                   if (!contextReady) throw new Error('Thiếu lịch sử hội thoại; không gửi câu trả lời thiếu ngữ cảnh.');
-                  await replyToCustomer(senderPsid, conversation);
+                  await trace?.edgeTransfer('check_auto_reply', 'ai_agent');
+                  await replyToCustomer(senderPsid, conversation, trace || { nodeStarted: async () => {}, nodeCompleted: async () => {}, edgeTransfer: async () => {}, nodeError: async () => {}, complete: async () => {}, patch: async () => {} });
                 } catch (error) {
                   addTaskLog('Auto-reply', `Lỗi tư vấn cho khách ${senderPsid}: ${error.message}`);
                   console.error('Không thể hoàn tất tư vấn:', error);
@@ -496,6 +556,21 @@ export default async function handler(req, res) {
               } else {
                 addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
                 console.log('Tự động trả lời đang tắt.');
+                if (trace && contextReady) {
+                  await trace.edgeTransfer('check_auto_reply', 'ai_agent', { skipped: true });
+                  await trace.nodeStarted('ai_agent', { skipped: true });
+                  await trace.nodeCompleted('ai_agent', { skipped: true });
+                  await trace.edgeTransfer('ai_agent', 'business_logic', { skipped: true });
+                  await trace.nodeStarted('business_logic', { skipped: true });
+                  await trace.nodeCompleted('business_logic', { skipped: true });
+                  await trace.edgeTransfer('business_logic', 'send_messenger', { skipped: true });
+                  await trace.nodeStarted('send_messenger', { skipped: true });
+                  await trace.nodeCompleted('send_messenger', { skipped: true });
+                  await trace.edgeTransfer('send_messenger', 'completed');
+                  await trace.nodeStarted('completed');
+                  await trace.nodeCompleted('completed');
+                  await trace.complete({ reason: 'auto_reply_disabled' });
+                }
               }
             }
           }
