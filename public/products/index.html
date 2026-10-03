@@ -3,395 +3,55 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103e2c">
   <title>Sản phẩm · LeafChat</title>
-  <style>
-    :root { font-family: Arial, sans-serif; color: #1f2937; background: #f3f4f6; }
-    body { margin: 0; padding: 24px; }
-    .wrap { max-width: 1180px; margin: auto; }
-    .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 18px; box-shadow: 0 2px 8px #00000012; }
-    h1 { margin-top: 0; color: #1877f2; }
-    h2 { margin: 0 0 14px; font-size: 18px; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; }
-    input, textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #d1d5db; border-radius: 7px; padding: 9px; font: inherit; }
-    textarea { min-height: 72px; resize: vertical; }
-    .wide { grid-column: 1 / -1; }
-    button { border: 0; border-radius: 7px; padding: 9px 13px; cursor: pointer; background: #1877f2; color: #fff; }
-    button.secondary { background: #6b7280; }
-    button.danger { background: #dc2626; }
-    button.warning { background: #d97706; }
-    .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-    #status { color: #2563eb; font-size: 13px; }
-    .variant-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 8px; align-items: end; }
-    .color-image-tools { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px; background: #f9fafb; border-radius: 7px; }
-    .color-image-tools input[type="file"] { max-width: 280px; }
-    .product { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-top: 10px; }
-    .product-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
-    .product-head strong { font-size: 17px; }
-    .muted { color: #6b7280; font-size: 13px; }
-    .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #dcfce7; color: #166534; }
-    .badge.off { background: #fee2e2; color: #991b1b; }
-    .variants { margin-top: 10px; font-size: 13px; }
-    .variant-color { margin: 4px 0; }
-    .images { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-    .images img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
-    .video-item { width: 180px; padding: 12px; box-sizing: border-box; border: 1px solid #e5e7eb; border-radius: 6px; overflow-wrap: anywhere; font-size: 12px; }
-    .attachment-list { display: grid; gap: 7px; margin: 8px 0 18px; }
-    .attachment-row { padding: 9px 11px; border: 1px solid #e5e7eb; border-radius: 7px; background: #f9fafb; font-size: 12px; overflow-wrap: anywhere; }
-    .attachment-row code { user-select: all; color: #111827; }
-    .image-item { position: relative; display: inline-flex; flex-direction: column; gap: 2px; font-size: 10px; color: #6b7280; text-align: center; }
-    .image-item.primary img { border: 2px solid #1877f2; }
-    .mapping-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
-    .mapping-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr auto; } }
-  </style>
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/products/products.css">
   <script src="/app-shell.js" defer></script>
+  <script src="/products/products.js" defer></script>
 </head>
 <body data-page="products">
-  <main class="wrap">
-    <div class="card">
-      <h1>Quản lý sản phẩm</h1>
-      <p class="muted"><a href="/">Tin nhắn</a> · <a href="/ads">Xem Facebook Ads &amp; ghép sản phẩm</a></p>
-      <div id="status"></div>
-    </div>
-
-    <div class="card">
-      <h2>Mapping quảng cáo → sản phẩm</h2>
-      <p class="muted">Gắn Ads ID Facebook với sản phẩm. Khi khách bấm quảng cáo này, bot dùng đúng sản phẩm và vẫn nhận ra khách đã được tư vấn.</p>
-      <form id="mapping-form" class="mapping-form">
-        <label>Ads ID<input id="mapping-ad-id" inputmode="numeric" pattern="[0-9]+" placeholder="Ví dụ: 52587817621103" required></label>
-        <label>Sản phẩm<select id="mapping-product-id" required></select></label>
-        <button type="submit">Lưu mapping</button>
-      </form>
-      <div id="mapping-status" class="muted" style="margin-top:10px"></div>
-      <div id="ad-mappings" style="margin-top:10px">Đang tải...</div>
-    </div>
-
-    <form id="product-form" class="card">
-      <h2 id="form-title">Thêm sản phẩm</h2>
-      <div class="grid">
-        <label>Tên sản phẩm<input id="name" required></label>
-        <label>Giá gốc<input id="price" type="number" min="0" step="1000" required></label>
-        <label>Chất liệu<input id="material"></label>
-        <label>Hướng dẫn size<textarea id="size-guide"></textarea></label>
+  <main class="page-main catalog-main">
+    <section class="page-heading">
+      <div><span class="eyebrow">PRODUCT WORKSPACE</span><h1>Quản lý sản phẩm</h1><p>Một danh mục gọn gàng. Một trợ lý hiểu sản phẩm hơn.</p></div>
+      <div class="heading-actions"><button class="btn" id="open-mappings" type="button"><span data-icon="ads"></span>Liên kết quảng cáo</button><button class="btn btn-primary" id="new-product" type="button"><span class="plus-sign">+</span>Thêm sản phẩm</button></div>
+    </section>
+    <section class="catalog-stats" aria-label="Tổng quan sản phẩm">
+      <article><span class="stat-symbol" data-icon="box"></span><div><span>Tổng sản phẩm</span><strong id="total-products">—</strong><small>Trong danh mục của bạn</small></div></article>
+      <article><span class="stat-symbol" data-icon="check"></span><div><span>Đang bán</span><strong id="active-products">—</strong><small>Sẵn sàng để AI tư vấn</small></div></article>
+      <article><span class="stat-symbol muted-symbol" data-icon="ads"></span><div><span>Quảng cáo đã liên kết</span><strong id="linked-ads">—</strong><small>Kết nối đúng sản phẩm</small></div></article>
+      <article><span class="stat-symbol amber-symbol" data-icon="spark"></span><div><span>Cần bổ sung thông tin</span><strong id="incomplete-products">—</strong><small>Giúp AI trả lời chính xác</small></div></article>
+    </section>
+    <div class="catalog-tip"><span class="tip-symbol" data-icon="spark"></span><div><strong>Sản phẩm đầy đủ, cuộc trò chuyện tự nhiên hơn.</strong><p>Bổ sung ảnh, màu, chất liệu và bảng size để trợ lý tư vấn đúng nhu cầu của khách.</p></div><button class="tip-link" id="show-incomplete" type="button">Kiểm tra danh mục <span data-icon="arrow"></span></button></div>
+    <section class="catalog-panel" aria-labelledby="catalog-title">
+      <div class="catalog-panel-heading"><div><h2 id="catalog-title">Danh mục sản phẩm <span id="catalog-count">—</span></h2><p>Quản lý sản phẩm, nội dung và trạng thái bán hàng.</p></div><button class="btn compact-btn" id="refresh-products" type="button"><span data-icon="refresh"></span>Làm mới</button></div>
+      <div class="catalog-toolbar">
+        <div class="catalog-tabs" role="group" aria-label="Lọc sản phẩm"><button type="button" data-filter="all" aria-pressed="true">Tất cả <span id="tab-all">0</span></button><button type="button" data-filter="active" aria-pressed="false">Đang bán</button><button type="button" data-filter="inactive" aria-pressed="false">Tạm ẩn</button><button type="button" data-filter="incomplete" aria-pressed="false">Cần bổ sung</button></div>
+        <div class="catalog-search-sort"><label class="catalog-search"><span data-icon="search"></span><input id="product-search" type="search" placeholder="Tìm tên, mã hoặc chất liệu…" aria-label="Tìm sản phẩm"></label><select id="product-sort" aria-label="Sắp xếp sản phẩm"><option value="newest">Mới nhất</option><option value="name">Tên A → Z</option><option value="price-low">Giá tăng dần</option><option value="price-high">Giá giảm dần</option></select></div>
       </div>
-
-      <h2 style="margin-top:20px">Màu sản phẩm</h2>
-      <div id="variants"></div>
-      <h2 style="margin-top:20px">Attachment ID đã lưu</h2>
-      <div id="product-attachment-ids" class="attachment-list"><span class="muted">Lưu hoặc chọn sửa sản phẩm để xem ID.</span></div>
-      <h2 style="margin-top:20px">Video sản phẩm</h2>
-      <p class="muted">Chọn video MP4. Video được tải lên Facebook và lưu attachment ID.</p>
-      <label>Chọn video<input id="product-video-files" type="file" accept="video/mp4,.mp4" multiple></label>
-      <div class="actions">
-        <button type="button" id="upload-product-videos" class="secondary" disabled>Upload video</button>
-        <span id="product-video-status" class="muted">Lưu sản phẩm để upload video.</span>
-      </div>
-      <div id="product-videos" class="images"></div>
-      <div class="actions">
-        <button type="button" id="add-variant" class="secondary">+ Thêm màu</button>
-        <button type="submit">Lưu sản phẩm</button>
-        <button type="button" id="cancel-edit" class="secondary" hidden>Huỷ sửa</button>
-      </div>
-    </form>
-
-    <div class="card"><h2>Danh sách sản phẩm</h2><div id="products">Đang tải...</div></div>
+      <div id="status" class="catalog-notice" role="status" aria-live="polite"></div>
+      <div id="products" class="product-grid" aria-label="Danh sách sản phẩm"><div class="catalog-empty">Đang tải danh mục sản phẩm…</div></div>
+      <div class="catalog-footer"><span id="result-count">Đang tải dữ liệu…</span><span>Đồng bộ với trợ lý AI của bạn</span></div>
+    </section>
+    <div class="catalog-footnote"><span>LEAFCHAT WORKSPACE</span><span>Quản lý tập trung · Tư vấn nhất quán</span></div>
   </main>
-
-  <script>
-    let products = [];
-    let adMappings = [];
-    let editingId = null;
-    let uploading = false;
-    const completedUploads = new WeakMap();
-
-    const $ = (id) => document.getElementById(id);
-    const setStatus = (message, error = false) => {
-      $('status').textContent = message;
-      $('status').style.color = error ? '#dc2626' : '#2563eb';
-    };
-
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
-    }
-
-    function addVariantRow(variant = {}) {
-      const row = document.createElement('div');
-      row.className = 'variant-row';
-      row.innerHTML = `<label>Màu<input class="variant-color" value="${escapeHtml(variant.color)}" required></label>
-        <button type="button" class="danger remove-variant">Xoá</button>
-        <div class="color-image-tools">
-          <input class="color-image-files" type="file" accept="image/*" multiple>
-          <label style="flex-direction:row; align-items:center; gap:5px; font-weight:normal;"><input class="color-image-primary" type="checkbox" style="width:auto"> Ảnh đầu tiên là ảnh chính</label>
-          <button type="button" class="secondary upload-color-images">Upload ảnh màu này</button>
-          <span class="muted color-upload-status">${editingId ? 'Chọn ảnh để upload thêm cho màu này.' : 'Lưu sản phẩm trước rồi upload ảnh.'}</span>
-        </div>`;
-      row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
-      row.querySelector('.upload-color-images').addEventListener('click', () => uploadImagesForColor(row));
-      $('variants').appendChild(row);
-    }
-
-    function readVariants() {
-      return [...document.querySelectorAll('.variant-row')].map((row) => ({
-        color: row.querySelector('.variant-color').value.trim()
-      })).filter((variant) => variant.color);
-    }
-
-    function readProductForm() {
-      return {
-        name: $('name').value.trim(), price: Number($('price').value || 0),
-        material: $('material').value.trim(), size_guide: $('size-guide').value.trim()
-      };
-    }
-
-    function clearForm() {
-      if (uploading) return;
-      editingId = null;
-      $('product-form').reset();
-      $('form-title').textContent = 'Thêm sản phẩm';
-      $('cancel-edit').hidden = true;
-      $('variants').innerHTML = '';
-      $('product-video-files').value = '';
-      $('upload-product-videos').disabled = true;
-      $('product-video-status').textContent = 'Lưu sản phẩm để upload video.';
-      $('product-videos').innerHTML = '';
-      $('product-attachment-ids').innerHTML = '<span class="muted">Lưu hoặc chọn sửa sản phẩm để xem ID.</span>';
-      addVariantRow();
-    }
-
-    function editProduct(product) {
-      if (uploading) { setStatus('Đợi upload hoàn tất trước khi đổi sản phẩm.', true); return; }
-      editingId = product.id;
-      $('form-title').textContent = `Sửa sản phẩm: ${product.name}`;
-      for (const [id, value] of Object.entries({ name: product.name, price: product.price, material: product.material, 'size-guide': product.size_guide })) $(id).value = value || '';
-      $('variants').innerHTML = '';
-      (product.variants || []).forEach(addVariantRow);
-      if (!product.variants?.length) addVariantRow();
-      $('cancel-edit').hidden = false;
-      $('product-video-files').value = '';
-      $('upload-product-videos').disabled = false;
-      $('product-video-status').textContent = 'Có thể upload thêm video ngay cho sản phẩm này.';
-      renderProductAttachmentIds(product);
-      renderProductVideos(product);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function renderProductAttachmentIds(product) {
-      const media = (product?.images || []).filter((item) => String(item.facebook_attachment_id || '').trim());
-      $('product-attachment-ids').innerHTML = media.length
-        ? media.map((item) => {
-            const type = item.media_type === 'video' ? 'Video' : 'Ảnh';
-            const color = item.color ? ` · Màu ${escapeHtml(item.color)}` : '';
-            return `<div class="attachment-row"><b>${type}${color}</b><br><code>${escapeHtml(item.facebook_attachment_id)}</code></div>`;
-          }).join('')
-        : '<span class="muted">Sản phẩm chưa có attachment ID.</span>';
-    }
-
-    function renderProductVideos(product) {
-      const videos = (product?.images || []).filter((item) => item.media_type === 'video');
-      $('product-videos').innerHTML = videos.length
-        ? videos.map((video) => `<div class="video-item">Video đã lưu trên Facebook<br><span class="muted">ID: ${escapeHtml(video.facebook_attachment_id)}</span></div>`).join('')
-        : '<span class="muted">Sản phẩm chưa có video.</span>';
-    }
-
-    function renderProducts() {
-      $('products').innerHTML = products.length ? products.map((product) => {
-        const colors = [...new Set((product.variants || []).map((variant) => variant.color).filter(Boolean))];
-        return `<article class="product"><div class="product-head"><div><strong>${escapeHtml(product.name)}</strong><div class="muted">Giá: ${Number(product.price).toLocaleString('vi-VN')}đ · Chất liệu: ${escapeHtml(product.material || 'Chưa cập nhật')}</div></div></div>
-          <div class="variants">${colors.map((color) => `<div class="variant-color"><b>${escapeHtml(color)}</b></div>`).join('') || '<span class="muted">Chưa có màu</span>'}</div>
-          <div class="images">${(product.images || []).map((image) => `<div class="image-item ${image.is_primary ? 'primary' : ''}">${image.media_type === 'video' ? `<div class="video-item">Video đã lưu trên Facebook<br><span class="muted">ID: ${escapeHtml(image.facebook_attachment_id)}</span></div>` : `<img src="${escapeHtml(image.image_url)}" alt="${escapeHtml(image.color)}">`}<span>${image.media_type === 'video' ? 'Video' : image.is_primary ? 'Ảnh chính' : 'Ảnh phụ'}</span></div>`).join('')}</div>
-          <div class="actions"><button type="button" data-edit="${product.id}">Sửa</button><button type="button" class="danger" data-delete="${product.id}">Xoá</button></div></article>`;
-      }).join('') : '<p class="muted">Chưa có sản phẩm.</p>';
-      document.querySelectorAll('[data-edit]').forEach((button) => button.addEventListener('click', () => editProduct(products.find((p) => p.id === Number(button.dataset.edit)))));
-      document.querySelectorAll('[data-toggle]').forEach((button) => button.addEventListener('click', () => toggleProduct(Number(button.dataset.toggle), button.dataset.status)));
-      document.querySelectorAll('[data-delete]').forEach((button) => button.addEventListener('click', () => deleteProduct(Number(button.dataset.delete))));
-    }
-
-    function renderMappingProducts() {
-      $('mapping-product-id').innerHTML = products.length
-        ? products.map((product) => `<option value="${product.id}">${escapeHtml(product.name)} · ID ${product.id}</option>`).join('')
-        : '<option value="">Chưa có sản phẩm</option>';
-    }
-
-    function renderAdMappings() {
-      $('ad-mappings').innerHTML = adMappings.length
-        ? adMappings.map((mapping) => {
-            const product = products.find((item) => Number(item.id) === Number(mapping.product_id));
-            return `<div class="mapping-row"><code>${escapeHtml(mapping.ad_id)}</code><span>${escapeHtml(product?.name || `Sản phẩm ID ${mapping.product_id}`)}</span><button type="button" class="danger" data-delete-mapping="${escapeHtml(mapping.ad_id)}">Xoá</button></div>`;
-          }).join('')
-        : '<span class="muted">Chưa có quảng cáo nào được mapping.</span>';
-      document.querySelectorAll('[data-delete-mapping]').forEach((button) => button.addEventListener('click', () => deleteAdMapping(button.dataset.deleteMapping)));
-    }
-
-    async function loadProducts() {
-      const response = await fetch('/api/products?action=list');
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Không thể tải sản phẩm.');
-      products = data;
-      renderProducts();
-      renderMappingProducts();
-      renderAdMappings();
-    }
-
-    async function loadAdMappings() {
-      const response = await fetch('/api/products?action=ad_mappings');
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Không thể tải mapping quảng cáo.');
-      adMappings = data;
-      renderAdMappings();
-    }
-
-    async function saveAdMapping(event) {
-      event.preventDefault();
-      const response = await fetch('/api/products?action=save_ad_mapping', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ad_id: $('mapping-ad-id').value.trim(), product_id: Number($('mapping-product-id').value) })
-      });
-      const data = await response.json();
-      if (!response.ok) { $('mapping-status').textContent = data.error || 'Không thể lưu mapping.'; return; }
-      $('mapping-ad-id').value = '';
-      $('mapping-status').textContent = `Đã mapping Ads ID ${data.ad_id}.`;
-      await loadAdMappings();
-    }
-
-    async function deleteAdMapping(adId) {
-      const response = await fetch('/api/products?action=delete_ad_mapping', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ad_id: adId })
-      });
-      const data = await response.json();
-      if (!response.ok) { $('mapping-status').textContent = data.error || 'Không thể xoá mapping.'; return; }
-      $('mapping-status').textContent = `Đã xoá mapping Ads ID ${adId}.`;
-      await loadAdMappings();
-    }
-
-    async function saveProduct(event) {
-      event.preventDefault();
-      if (uploading) { setStatus('Đợi upload hoàn tất trước khi lưu sản phẩm.', true); return; }
-      try {
-        const colorRows = [...document.querySelectorAll('.variant-row')];
-        const response = await fetch(`/api/products?action=${editingId ? 'update' : 'create'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, product: readProductForm(), variants: readVariants() }) });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Không thể lưu sản phẩm.');
-        const productId = Number(data.id);
-        editingId = productId;
-        $('upload-product-videos').disabled = false;
-        const rowsWithImages = colorRows.filter((row) => row.querySelector('.color-image-files').files.length);
-        for (const row of rowsWithImages) {
-          if (!await uploadImagesForColor(row, productId, false)) throw new Error('Lưu sản phẩm được nhưng upload ảnh/video thất bại.');
-        }
-        const hasVideos = $('product-video-files').files.length > 0;
-        if (hasVideos && !await uploadProductVideos(productId, false)) throw new Error('Đã lưu sản phẩm nhưng upload video thất bại.');
-        setStatus(rowsWithImages.length || hasVideos ? 'Đã lưu sản phẩm và ảnh/video.' : 'Đã lưu sản phẩm.');
-        clearForm();
-        await loadProducts();
-      } catch (error) { setStatus(error.message, true); }
-    }
-
-    async function toggleProduct(id, currentStatus) {
-      const response = await fetch('/api/products?action=toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: currentStatus === 'active' ? 'inactive' : 'active' }) });
-      if (!response.ok) setStatus('Không thể đổi trạng thái.', true); else await loadProducts();
-    }
-
-    async function deleteProduct(id) {
-      if (!confirm('Xoá sản phẩm này?')) return;
-      const response = await fetch('/api/products?action=delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-      if (!response.ok) setStatus('Không thể xoá sản phẩm.', true); else await loadProducts();
-    }
-
-    function readFileAsDataUrl(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
-    async function uploadImagesForColor(row, productId = editingId, refresh = true) {
-      const color = row.querySelector('.variant-color').value.trim();
-      const files = [...row.querySelector('.color-image-files').files];
-      const status = row.querySelector('.color-upload-status');
-      const isPrimary = row.querySelector('.color-image-primary').checked;
-      const firstImageIndex = files.findIndex((file) => file.type.startsWith('image/'));
-      if (uploading) { status.textContent = 'Đang upload, vui lòng đợi hoàn tất.'; return false; }
-      if (!productId || !color || !files.length) { status.textContent = 'Hãy lưu sản phẩm, nhập màu và chọn ảnh/video.'; return false; }
-      uploading = true;
-      try {
-        for (const [index, file] of files.entries()) {
-          if (completedUploads.get(file) === productId) continue;
-          status.textContent = `Đang upload ${index + 1}/${files.length}...`;
-          if (!file.type.startsWith('image/')) throw new Error('Chọn ảnh ở mục này; video có mục upload riêng bên dưới.');
-          const response = await fetch('/api/products?action=upload_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: Number(productId), color, filename: file.name, data: await readFileAsDataUrl(file), is_primary: index === firstImageIndex && isPrimary, sort_order: index }) });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || 'Upload thất bại.');
-          completedUploads.set(file, productId);
-        }
-        status.textContent = 'Upload thành công.';
-        row.querySelector('.color-image-files').value = '';
-        row.querySelector('.color-image-primary').checked = false;
-        if (refresh) await loadProducts();
-        return true;
-      } catch (error) { status.textContent = error.message; return false; }
-      finally { uploading = false; }
-    }
-
-    async function uploadProductVideos(productId = editingId, refresh = true) {
-      const status = $('product-video-status');
-      const files = [...$('product-video-files').files];
-      if (uploading) { status.textContent = 'Đang upload, vui lòng đợi hoàn tất.'; return false; }
-      if (!productId || !files.length) { status.textContent = 'Hãy lưu sản phẩm và chọn video trước khi upload.'; return false; }
-      uploading = true;
-      $('upload-product-videos').disabled = true;
-      try {
-        for (const [index, file] of files.entries()) {
-          if (completedUploads.get(file) === productId) continue;
-          if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name)) throw new Error('Chỉ hỗ trợ video MP4.');
-          await uploadVideo(file, productId, '', index, status);
-          completedUploads.set(file, productId);
-        }
-        $('product-video-files').value = '';
-        status.textContent = 'Đã upload video lên Facebook.';
-        if (refresh) {
-          await loadProducts();
-          renderProductVideos(products.find((product) => product.id === productId));
-        }
-        return true;
-      } catch (error) { status.textContent = error.message; return false; }
-      finally { uploading = false; $('upload-product-videos').disabled = !editingId; }
-    }
-
-    async function uploadVideo(file, productId, color, sortOrder, status) {
-      if (!file.size) throw new Error('Video MP4 không được để trống.');
-      status.textContent = `Đang chuẩn bị tải ${file.name}...`;
-      const prepareResponse = await fetch('/api/products?action=prepare_video_upload', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: Number(productId), filename: file.name })
-      });
-      const prepared = await prepareResponse.json().catch(() => ({}));
-      if (!prepareResponse.ok || !prepared.signed_url || !prepared.path) {
-        throw new Error(prepared.error || 'Không thể chuẩn bị đường dẫn upload video.');
-      }
-      status.textContent = `Đang tải ${file.name} lên kho lưu trữ...`;
-      const form = new FormData();
-      form.append('cacheControl', '3600');
-      form.append('', file);
-      const storageResponse = await fetch(prepared.signed_url, { method: 'PUT', body: form });
-      if (!storageResponse.ok) {
-        const storageError = await storageResponse.json().catch(() => ({}));
-        throw new Error(storageError.message || storageError.error || `Kho lưu trữ từ chối video (HTTP ${storageResponse.status}).`);
-      }
-      status.textContent = `Đang lấy attachment ID Facebook cho ${file.name}...`;
-      const response = await fetch('/api/products?action=finalize_video_upload', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: Number(productId), path: prepared.path, color, sort_order: Number(sortOrder)
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Không thể upload video lên Facebook. Hãy thử lại.');
-      return data;
-    }
-
-    $('product-form').addEventListener('submit', saveProduct);
-    $('mapping-form').addEventListener('submit', saveAdMapping);
-    $('add-variant').addEventListener('click', () => addVariantRow());
-    $('cancel-edit').addEventListener('click', clearForm);
-    $('upload-product-videos').addEventListener('click', () => uploadProductVideos());
-    clearForm();
-    Promise.all([loadProducts(), loadAdMappings()]).catch((error) => setStatus(error.message, true));
-  </script>
+  <dialog id="product-dialog" class="product-dialog" aria-labelledby="form-title">
+    <form id="product-form">
+      <header class="editor-heading"><div><span class="eyebrow">PRODUCT DETAILS</span><h2 id="form-title">Thêm sản phẩm</h2><p id="editor-subtitle">Thông tin này được dùng để AI tư vấn cho khách hàng.</p></div><button type="button" id="close-editor" class="icon-button" aria-label="Đóng form sản phẩm"><span data-icon="close"></span></button></header>
+      <div class="editor-body">
+        <section class="editor-section"><div class="section-title"><span>01</span><div><h3>Thông tin cơ bản</h3><p>Những điều khách hàng cần biết về sản phẩm.</p></div></div>
+          <div class="form-grid"><label class="full-width">Tên sản phẩm <span class="required">*</span><input id="name" placeholder="Ví dụ: Váy hoa thiết kế" required maxlength="250"></label><label>Giá bán <span class="required">*</span><div class="money-input"><input id="price" type="number" min="0" step="1000" placeholder="289000" required><span>VNĐ</span></div></label><label>Chất liệu<input id="material" placeholder="Ví dụ: Cotton lạnh"></label><label class="full-width">Hướng dẫn chọn size<textarea id="size-guide" placeholder="Size M: 50–58kg&#10;Size L: 59–65kg"></textarea><small>Nhập khoảng số đo cụ thể để AI chọn đúng size.</small></label></div>
+        </section>
+        <section class="editor-section"><div class="section-title"><span>02</span><div><h3>Màu sắc & hình ảnh</h3><p>Ảnh được gắn với từng màu để gửi đúng mẫu cho khách.</p></div><button type="button" id="add-variant" class="btn compact-btn">+ Thêm màu</button></div><div id="variants"></div><div id="saved-images" class="saved-images"></div></section>
+        <section class="editor-section"><div class="section-title"><span>03</span><div><h3>Video sản phẩm</h3><p>Thêm góc nhìn thực tế về chất liệu và phom dáng.</p></div></div><label class="upload-zone">Chọn video MP4<input id="product-video-files" type="file" accept="video/mp4,.mp4" multiple><small>Có thể chọn nhiều video. Tệp được tải lên khi lưu sản phẩm.</small></label><div class="upload-actions"><button type="button" id="upload-product-videos" class="btn" disabled>Tải video lên ngay</button><span id="product-video-status" class="muted" role="status">Lưu sản phẩm để upload video.</span></div><div id="product-videos" class="images"></div></section>
+        <details class="technical-details"><summary>Thông tin tệp Facebook</summary><p class="muted">Mã tệp đã đồng bộ để chatbot gửi ảnh và video.</p><div id="product-attachment-ids" class="attachment-list"></div></details>
+      </div>
+      <footer class="editor-footer"><span id="editor-status" role="status"></span><div><button type="button" id="cancel-edit" class="btn">Hủy</button><button type="submit" id="save-product" class="btn btn-primary">Lưu sản phẩm</button></div></footer>
+    </form>
+  </dialog>
+  <dialog id="mapping-dialog" class="mapping-dialog" aria-labelledby="mapping-title">
+    <header class="editor-heading"><div><span class="eyebrow">AD CONNECTIONS</span><h2 id="mapping-title">Liên kết quảng cáo</h2><p>Giúp chatbot nhận biết khách đang quan tâm sản phẩm nào.</p></div><button id="close-mappings" type="button" class="icon-button" aria-label="Đóng liên kết quảng cáo"><span data-icon="close"></span></button></header>
+    <div class="editor-body"><form id="mapping-form" class="mapping-form"><label>Ads ID<input id="mapping-ad-id" inputmode="numeric" pattern="[0-9]+" placeholder="Nhập ID quảng cáo Facebook" required></label><label>Sản phẩm<select id="mapping-product-id" required></select></label><button type="submit" id="save-mapping" class="btn btn-primary">Liên kết</button></form><p id="mapping-status" class="muted" role="status"></p><div class="mapping-list-heading"><h3>Liên kết hiện có</h3><a href="/ads">Xem creative quảng cáo ↗</a></div><div id="ad-mappings">Đang tải…</div></div>
+  </dialog>
 </body>
 </html>

@@ -57,15 +57,6 @@ svg { width:20px; height:20px; flex-shrink:0; }
 .page-main { padding:30px; max-width:1800px; margin:auto; }
 /* Shared product and advertising workspaces. */
 body[data-page="products"] .wrap,body[data-page="ads"] .shell { width:100%; max-width:1440px; padding:30px; margin:auto; }
-body[data-page="products"] .card { box-shadow:0 2px 4px #16382603; border:1px solid var(--line); border-radius:12px; padding:24px; }
-body[data-page="products"] h1 { color:var(--text); font-size:27px; letter-spacing:-.7px; }
-body[data-page="products"] h2 { font-size:16px; color:var(--text); }
-body[data-page="products"] button { background:var(--green); border-radius:7px; }
-body[data-page="products"] button.secondary { background:#e8f1eb; color:#367149; }
-body[data-page="products"] button.danger { background:#fbecec; color:#b13838; }
-body[data-page="products"] button.warning { background:#fff2da; color:#996513; }
-body[data-page="products"] input,body[data-page="products"] select,body[data-page="products"] textarea { border-color:var(--line); background:#fcfdfc; color:var(--text); min-height:39px; }
-body[data-page="products"] .image-item.primary img { border-color:var(--green); }
 body[data-page="ads"] .topbar { display:none; }
 body[data-page="ads"] .headline h1 { font-size:28px; }
 body[data-page="ads"] .headline p { font-size:13px; }

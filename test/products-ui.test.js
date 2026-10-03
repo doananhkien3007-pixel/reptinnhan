@@ -6,7 +6,8 @@ import vm from 'node:vm';
 test('giao diện chuyển file qua server và hiển thị ID Facebook không cần URL video', async () => {
   const elements = new Map();
   const element = () => ({
-    innerHTML: '', value: '', files: [], style: {}, addEventListener() {}, reset() {}, appendChild() {},
+    innerHTML: '', value: '', files: [], style: {}, dataset: {}, addEventListener() {}, reset() {}, appendChild() {},
+    showModal() { this.open = true; }, close() { this.open = false; },
     querySelector: () => element()
   });
   let uploadFails = true;
@@ -52,8 +53,8 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
       return uploadFails ? Response.json({ error: 'Facebook bận' }, { status: 400 }) : Response.json({ facebook_attachment_id: 'video-1' });
     }
   });
-  const html = fs.readFileSync(new URL('../public/products/index.html', import.meta.url), 'utf8');
-  vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
+  const script = fs.readFileSync(new URL('../public/products/products.js', import.meta.url), 'utf8');
+  vm.runInContext(script, context);
   await new Promise((resolve) => setImmediate(resolve));
   const file = new Blob(['video bytes'], { type: 'video/mp4' });
   file.name = 'demo.mp4';
@@ -69,8 +70,7 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   vm.runInContext(`products = [{id: 7, name: 'Váy', images: [
     {image_url: 'image.jpg'}, {media_type: 'video', facebook_attachment_id: 'video-1'}
   ]}]; renderProducts();`, context);
-  assert.match(elements.get('products').innerHTML, /Video đã lưu trên Facebook/);
-  assert.match(elements.get('products').innerHTML, /ID: video-1/);
+  assert.match(elements.get('products').innerHTML, /1 ảnh · 1 video/);
   assert.match(elements.get('products').innerHTML, /<img src="image.jpg"/);
   assert.doesNotMatch(elements.get('products').innerHTML, /<video|undefined/);
 
@@ -82,6 +82,7 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
     ]
   });
   assert.equal(elements.get('upload-product-videos').disabled, false);
+  assert.equal(elements.get('product-dialog').open, true);
   assert.match(elements.get('product-video-status').textContent, /upload thêm video ngay/);
   assert.match(elements.get('product-attachment-ids').innerHTML, /Ảnh · Màu Đỏ/);
   assert.match(elements.get('product-attachment-ids').innerHTML, /image-attachment-1/);
@@ -96,4 +97,25 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   context.clearForm();
   assert.equal(elements.get('upload-product-videos').disabled, true);
   assert.equal(elements.get('product-videos').innerHTML, '');
+
+  vm.runInContext(`products = [
+    {id: 1, name: 'Váy hoa', price: 289000, material: 'Cotton', size_guide: 'M', colors: ['Đỏ'], images: [{image_url: 'dress.jpg'}], status: 'active'},
+    {id: 2, name: 'Áo xanh', price: 0, status: 'inactive', images: []}
+  ]; productsLoaded = true; renderProducts();`, context);
+  assert.equal(elements.get('total-products').textContent, 2);
+  assert.equal(elements.get('active-products').textContent, 1);
+  assert.equal(elements.get('incomplete-products').textContent, 1);
+  context.setFilter('incomplete');
+  assert.doesNotMatch(elements.get('products').innerHTML, /Váy hoa/);
+  assert.match(elements.get('products').innerHTML, /Áo xanh/);
+  context.setFilter('all');
+  elements.get('product-search').value = 'cotton';
+  context.renderProducts();
+  assert.match(elements.get('products').innerHTML, /Váy hoa/);
+  assert.doesNotMatch(elements.get('products').innerHTML, /Áo xanh/);
+  elements.get('product-search').value = '';
+  elements.get('product-sort').value = 'price-low';
+  assert.equal(context.filteredProducts()[0].id, 2);
+  context.editProduct({ id: 2, name: 'Áo xanh', price: 0 });
+  assert.equal(elements.get('price').value, 0);
 });
