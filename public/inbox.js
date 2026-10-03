@@ -223,8 +223,18 @@ $('conversation-list').addEventListener('click', event => {
   selectedId = item.dataset.customer;
   renderConversations();
   document.querySelector('.inbox-workspace').classList.add('show-conversation');
+  document.querySelector('.inbox-workspace').classList.remove('show-profile');
+  $('profile-toggle').setAttribute('aria-expanded', 'false');
+  if (window.matchMedia('(max-width: 600px)').matches) document.querySelector('.inbox-workspace').scrollIntoView({ block: 'start' });
 });
-$('back-to-list').addEventListener('click', () => document.querySelector('.inbox-workspace').classList.remove('show-conversation'));
+$('back-to-list').addEventListener('click', () => {
+  document.querySelector('.inbox-workspace').classList.remove('show-conversation', 'show-profile');
+  $('profile-toggle').setAttribute('aria-expanded', 'false');
+});
+$('profile-toggle').addEventListener('click', () => {
+  const open = document.querySelector('.inbox-workspace').classList.toggle('show-profile');
+  $('profile-toggle').setAttribute('aria-expanded', String(open));
+});
 document.addEventListener('error', event => {
   const img = event.target;
   if (img.tagName === 'IMG' && img.dataset.initials) {
