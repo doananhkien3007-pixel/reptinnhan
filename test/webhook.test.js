@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PROMOTION_MESSAGE, SIZE_QUESTION } from '../api/services/product-introduction.js';
+import { PROMOTION_MESSAGE, SIZE_QUESTION } from '../server/product-introduction.js';
 
 test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';

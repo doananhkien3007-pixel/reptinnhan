@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getWeightSizeAdvice } from '../api/services/size-advice.js';
+import { getWeightSizeAdvice } from '../server/size-advice.js';
 
 const product = { name: 'Váy cotton lạnh', size_guide: 'Size M: 50-58kg; Size L: 59-65kg' };
 

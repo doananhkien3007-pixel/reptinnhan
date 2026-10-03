@@ -7,7 +7,7 @@ import {
   getCreativeDestination,
   normalizeAdAccountId,
   suggestProductForAd
-} from '../api/services/facebook-ads.js';
+} from '../server/facebook-ads.js';
 
 test('Ads API dùng token Marketing riêng, không dùng token Messenger', () => {
   const source = fs.readFileSync(new URL('../api/facebook-ads.js', import.meta.url), 'utf8');

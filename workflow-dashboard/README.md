@@ -13,6 +13,8 @@ npm install
 npm run dev
 ```
 
+Production build được export hoàn toàn tĩnh vào thư mục `out/`, vì vậy dashboard không tạo thêm Vercel Serverless Function.
+
 Webhook hiện tại ghi execution và event bằng `SUPABASE_SECRET_KEY` ở server. Dashboard đọc `workflow_executions` và subscribe `workflow_events` bằng Supabase Realtime.
 
 Nếu chưa cấu hình biến môi trường frontend, dashboard tự chuyển sang demo data để có thể kiểm tra giao diện và animation. Khi cấu hình Supabase, demo data tự tắt.

@@ -1,5 +1,5 @@
-import { requireSupabase } from './services/supabase.js';
-import { fetchFacebookAds, suggestProductForAd } from './services/facebook-ads.js';
+import { requireSupabase } from '../server/supabase.js';
+import { fetchFacebookAds, suggestProductForAd } from '../server/facebook-ads.js';
 
 function productSummary(product) {
   const images = Array.isArray(product.images) ? product.images : [];

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { requireSupabase } from './services/supabase.js';
-import { listProducts } from './services/products.js';
+import { requireSupabase } from '../server/supabase.js';
+import { listProducts } from '../server/products.js';
 
 // Facebook may need time to fetch and register a large video from Storage.
 export const maxDuration = 60;

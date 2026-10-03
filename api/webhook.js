@@ -1,12 +1,12 @@
 // api/webhook.js
-import { generateReply } from './services/ai-reply.js';
+import { generateReply } from '../server/ai-reply.js';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { withTypingDelay } from './services/messenger-typing.js';
-import { getSupabase } from './services/supabase.js';
-import { planIntroduction } from './services/product-introduction.js';
-import { getAdReferral } from './services/ad-referral.js';
-import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim } from './services/welcome-claim.js';
-import { createWorkflowTrace } from './services/workflow-trace.js';
+import { withTypingDelay } from '../server/messenger-typing.js';
+import { getSupabase } from '../server/supabase.js';
+import { planIntroduction } from '../server/product-introduction.js';
+import { getAdReferral } from '../server/ad-referral.js';
+import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim } from '../server/welcome-claim.js';
+import { createWorkflowTrace } from '../server/workflow-trace.js';
 import {
   getOrCreateConversation,
   getMainProduct,
@@ -14,7 +14,7 @@ import {
   saveConversationMessage,
   updateConversationAd,
   updateConversationProduct
-} from './services/products.js';
+} from '../server/products.js';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {

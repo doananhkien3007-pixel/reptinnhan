@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withTypingDelay } from '../api/services/messenger-typing.js';
+import { withTypingDelay } from '../server/messenger-typing.js';
 
 test('typing có chờ trước tin nhắn và luôn tắt kể cả khi gửi lỗi', async () => {
   const originalFetch = globalThis.fetch;
