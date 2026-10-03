@@ -46,6 +46,15 @@
     <label class="field-label" for="system-prompt">Hướng dẫn cho trợ lý</label><textarea id="system-prompt" placeholder="Ví dụ: Tư vấn thân thiện, hỏi nhu cầu của khách trước khi giới thiệu sản phẩm…"></textarea>
     <div class="dialog-actions"><span id="prompt-status" role="status"></span><button id="save-prompt" class="btn btn-primary" type="button">Lưu hướng dẫn</button></div>
     <div class="connection-check"><div><strong>Kết nối AI</strong><p>Kiểm tra trợ lý có sẵn sàng phản hồi hay không.</p></div><button id="test-openai" class="btn" type="button">Kiểm tra kết nối</button></div><p id="openai-status" role="status"></p>
+    <section class="ai-preview" aria-labelledby="preview-title">
+      <h3 id="preview-title">Thử cách AI trả lời</h3>
+      <p id="preview-context" class="dialog-description"></p>
+      <label class="field-label" for="preview-message">Tin nhắn của khách</label>
+      <textarea id="preview-message" rows="3" maxlength="4000" placeholder="Ví dụ: chị 53kg cao 1m60 mặc size nào em?"></textarea>
+      <button id="preview-reply" class="btn btn-primary" type="button">Thử phản hồi</button>
+      <p class="preview-note">Dùng hướng dẫn đã lưu. Bản thử không gửi tin cho khách hoặc lưu vào hội thoại.</p>
+      <div id="preview-result" role="status" aria-live="polite" hidden></div>
+    </section>
   </dialog>
   <dialog id="logs-dialog" class="settings-dialog logs-dialog" aria-labelledby="logs-title">
     <form method="dialog" class="dialog-heading"><div><span class="eyebrow">HOẠT ĐỘNG HỆ THỐNG</span><h2 id="logs-title">Nhật ký xử lý</h2></div><button class="icon-button" aria-label="Đóng nhật ký"><span data-icon="close"></span></button></form>

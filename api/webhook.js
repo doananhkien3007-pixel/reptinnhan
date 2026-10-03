@@ -3,18 +3,15 @@ import { generateReply } from '../server/ai-reply.js';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { withTypingDelay } from '../server/messenger-typing.js';
 import { getSupabase } from '../server/supabase.js';
-import { planIntroduction } from '../server/product-introduction.js';
+import { getReplyContext } from '../server/conversation-context.js';
+import { beginCustomerTurn, checkpointTurn, endCustomerTurn } from '../server/customer-turn.js';
 import { getAdReferral } from '../server/ad-referral.js';
-import { acquireWelcomeClaim, completeWelcomeClaim, releaseWelcomeClaim } from '../server/welcome-claim.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
 import { syncFacebookProfile } from '../server/facebook-profile.js';
 import {
   getOrCreateConversation,
-  getMainProduct,
-  getAllSentTexts,
   saveConversationMessage,
-  updateConversationAd,
-  updateConversationProduct
+  updateConversationAd
 } from '../server/products.js';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
@@ -237,7 +234,7 @@ async function generateOpenAIReply(receivedText, context = {}) {
     ...context,
     systemPrompt: global.openaiSystemPrompt
   });
-  addTaskLog('OpenAI', `Đã tạo câu trả lời theo ngữ cảnh; chọn ${result.media_ids.length} ảnh/video`);
+  addTaskLog('OpenAI', `Hiểu ý định: ${result.intent}; chọn ${result.media_ids.length} ảnh/video`);
   return result;
 }
 
@@ -313,88 +310,122 @@ async function waitBetweenReplies(min = 800, max = 1800) {
   if (delay) await sleep(delay);
 }
 
-async function waitBeforeFirstReply() {
-  const configured = Number(process.env.MESSENGER_INITIAL_REPLY_DELAY_MS);
-  const delay = Number.isFinite(configured)
-    ? Math.max(0, Math.min(10000, configured))
-    : randomDelay(2000, 4000);
-  if (delay) await sleep(delay);
+async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context) {
+  await trace.nodeStarted('ai_agent', { mode: 'contextual_ai', history_count: context.history.length });
+  let plan = turn.value.plan;
+  if (!plan) {
+    const result = await generateOpenAIReply(receivedText, context);
+    const actions = [{ type: 'text', text: result.reply }];
+    for (const id of result.media_ids) {
+      const media = context.media.find(item => String(item.facebook_attachment_id).trim() === id);
+      const type = media.media_type === 'video' ? 'Video' : 'Ảnh';
+      actions.push({ type: 'media', media, marker: `[${type} sản phẩm ${context.product.id}:${id}]` });
+    }
+    plan = { intent: result.intent, actions };
+    await checkpointTurn(turn, { plan, sent_count: 0 });
+  }
+  await trace.nodeCompleted('ai_agent', { intent: plan.intent });
+  await trace.edgeTransfer('ai_agent', 'business_logic');
+  await trace.nodeStarted('business_logic');
+  await trace.nodeCompleted('business_logic', { intent: plan.intent, action_count: plan.actions.length });
+  await trace.edgeTransfer('business_logic', 'send_messenger');
+  await trace.nodeStarted('send_messenger');
+  for (let index = turn.value.sent_count || 0; index < plan.actions.length; index++) {
+    // An operator can pause the bot while an AI request is in flight.
+    if (!await readAutoReplyEnabled()) {
+      addTaskLog('Auto-reply', 'Dừng lượt đang xử lý vì người quản trị đã tắt bot');
+      break;
+    }
+    if (index > 0) await waitBetweenReplies(500, 1000);
+    const action = plan.actions[index];
+    if (action.type === 'text') await sendMessengerMessage(recipientId, action.text, conversation.id);
+    else await sendMessengerMedia(recipientId, action.media, conversation.id, action.marker);
+    await checkpointTurn(turn, { sent_count: index + 1 });
+  }
+  await trace.nodeCompleted('send_messenger', { action_count: turn.value.sent_count || 0 });
+  await trace.edgeTransfer('send_messenger', 'completed');
+  await trace.nodeStarted('completed');
+  await trace.nodeCompleted('completed');
+  await trace.complete({ intent: plan.intent, product_id: context.product?.id || null });
 }
 
-async function replyToCustomer(recipientId, conversation, trace) {
-  let stage = 'ai_agent';
-  let claim = null;
-  try {
-    // The current welcome flow is deterministic. Keep the AI node visible in the
-    // fixed operational graph while reporting its actual mode to telemetry.
-    await trace.nodeStarted('ai_agent', { mode: 'deterministic_policy' });
-    const product = await getMainProduct();
-    const texts = await getAllSentTexts(recipientId);
-    await trace.patch({ product_id: product.id, product_name: product.name });
-    await trace.nodeCompleted('ai_agent', { mode: 'deterministic_policy' });
-    await trace.edgeTransfer('ai_agent', 'business_logic');
+async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
+  const senderPsid = webhookEvent.sender?.id;
+  if (!senderPsid || webhookEvent.message?.is_echo) return;
+  const receivedText = webhookEvent.message?.text?.trim()
+    || (webhookEvent.message?.attachments?.length ? '[Khách gửi ảnh hoặc tệp]' : null)
+    || (webhookEvent.postback ? webhookEvent.postback.title || webhookEvent.postback.payload || '[Khách bấm nút]' : null);
+  const { adId, location } = getAdReferral(webhookEvent);
+  if (channel === 'standby' || !receivedText) {
+    if (adId) {
+      const conversation = await getOrCreateConversation(senderPsid);
+      await updateConversationAd(conversation, adId);
+    }
+    return;
+  }
 
-    stage = 'business_logic';
-    await trace.nodeStarted('business_logic');
-    // Chỉ công nhận marker cũ không có mã sản phẩm nếu hội thoại đang gắn đúng mẫu.
-    const allowLegacy = String(conversation.current_product_id) === String(product.id);
-    const plan = planIntroduction(product, texts, { allowLegacy });
-    if (!plan.images.length && !plan.videos.length && !plan.messages.length) {
-      addTaskLog('Auto-reply', `Khách ${recipientId} đã nhận đủ 2 ảnh, video, giá, ưu đãi, chất vải và câu hỏi cân nặng/chiều cao; hoàn tất.`);
-      await trace.nodeCompleted('business_logic', { action_count: 0, reason: 'already_complete' });
-      await trace.edgeTransfer('business_logic', 'send_messenger');
-      await trace.nodeStarted('send_messenger', { action_count: 0 });
-      await trace.nodeCompleted('send_messenger', { action_count: 0 });
-      await trace.edgeTransfer('send_messenger', 'completed');
-      await trace.nodeStarted('completed');
-      await trace.nodeCompleted('completed');
-      await trace.complete({ reason: 'already_complete' });
-      return;
+  let turn;
+  let trace;
+  let stage = 'facebook_webhook';
+  try {
+    turn = await beginCustomerTurn(senderPsid, webhookEvent);
+    if (turn.value.complete) return;
+    trace = await createWorkflowTrace({ customerId: senderPsid, message: receivedText, adId });
+    await trace.nodeStarted('facebook_webhook');
+    await trace.nodeCompleted('facebook_webhook');
+    await trace.edgeTransfer('facebook_webhook', 'parse_message');
+    stage = 'parse_message';
+    await trace.nodeStarted(stage);
+    await trace.nodeCompleted(stage, { message_type: webhookEvent.message?.attachments?.length ? 'attachment' : 'text' });
+    await trace.edgeTransfer('parse_message', 'detect_ad');
+    stage = 'detect_ad';
+    await trace.nodeStarted(stage);
+    let conversation = await getOrCreateConversation(senderPsid);
+    if (adId) {
+      const productId = await updateConversationAd(conversation, adId);
+      conversation = { ...conversation, ad_id: adId, current_product_id: productId || conversation.current_product_id };
+      addTaskLog('Ads', `Khách ${senderPsid}: ${adId} từ ${location}`);
     }
-    // Khóa riêng cho nhiệm vụ mới; trạng thái complete của lời chào cũ không bỏ sót câu hỏi size.
-    claim = await acquireWelcomeClaim(recipientId, `bot_intro_v2:${product.id}`, { reopenComplete: true });
-    if (!claim) {
-      await trace.nodeCompleted('business_logic', { reason: 'duplicate_execution' });
-      await trace.complete({ reason: 'duplicate_execution' });
-      return;
+    await trace.nodeCompleted(stage, { ad_id: conversation.ad_id || null });
+    await trace.edgeTransfer('detect_ad', 'find_product');
+    stage = 'find_product';
+    await trace.nodeStarted(stage);
+    conversation = await syncFacebookProfile(conversation);
+    if (!turn.value.inbound_saved) {
+      await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
+      await checkpointTurn(turn, { inbound_saved: true });
+      global.messages.push({ senderId: senderPsid, adId: conversation.ad_id, direction: 'inbound', text: receivedText,
+        time: new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) });
+      if (global.messages.length > 200) global.messages.shift();
+      addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
     }
-    const latest = planIntroduction(product, await getAllSentTexts(recipientId), { allowLegacy });
-    const actionCount = latest.images.length + latest.videos.length + latest.messages.length;
-    await trace.nodeCompleted('business_logic', { action_count: actionCount });
-    await trace.edgeTransfer('business_logic', 'send_messenger');
-    stage = 'send_messenger';
-    await trace.nodeStarted('send_messenger', { action_count: actionCount });
-    await waitBeforeFirstReply();
-    let sentAny = false;
-    const pause = async (min, max) => {
-      if (sentAny) await waitBetweenReplies(min, max);
-      sentAny = true;
-    };
-    for (const { image, marker } of latest.images) {
-      await pause(800, 1600);
-      await sendMessengerMedia(recipientId, image, conversation.id, marker);
+    const context = autoReplyEnabled ? await getReplyContext(conversation, receivedText) : null;
+    await trace.patch({ product_id: context?.product?.id || null, product_name: context?.product?.name || null });
+    await trace.nodeCompleted(stage, { product_id: context?.product?.id || null });
+    await trace.edgeTransfer('find_product', 'check_auto_reply');
+    stage = 'check_auto_reply';
+    await trace.nodeStarted(stage);
+    await trace.nodeCompleted(stage, { enabled: autoReplyEnabled });
+    if (autoReplyEnabled) {
+      await trace.edgeTransfer('check_auto_reply', 'ai_agent');
+      stage = 'ai_agent';
+      // Report send failures at the actual active node in the wrapper below.
+      const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
+      await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context);
+    } else {
+      for (const [previous, node] of [['check_auto_reply', 'ai_agent'], ['ai_agent', 'business_logic'], ['business_logic', 'send_messenger'], ['send_messenger', 'completed']]) {
+        await trace.edgeTransfer(previous, node, { skipped: true });
+        await trace.nodeStarted(node, { skipped: true });
+        await trace.nodeCompleted(node, { skipped: true });
+      }
+      await trace.complete({ reason: 'auto_reply_disabled' });
     }
-    for (const { video, marker } of latest.videos) {
-      await pause(1500, 2500);
-      await sendMessengerMedia(recipientId, video, conversation.id, marker);
-    }
-    for (const [index, text] of latest.messages.entries()) {
-      await pause(index === 0 ? 1200 : 1000, index === 0 ? 2200 : 2000);
-      await sendMessengerMessage(recipientId, text, conversation.id);
-    }
-    // Chỉ chuyển liên kết sản phẩm sau khi tư vấn đủ, tránh nhận nhầm marker mẫu cũ khi thử lại.
-    await updateConversationProduct(conversation.id, product.id);
-    await completeWelcomeClaim(claim);
-    await trace.nodeCompleted('send_messenger', { action_count: actionCount });
-    await trace.edgeTransfer('send_messenger', 'completed');
-    await trace.nodeStarted('completed');
-    await trace.nodeCompleted('completed');
-    await trace.complete({ product_id: product.id, action_count: actionCount });
-    addTaskLog('Auto-reply', `Đã tư vấn đủ sản phẩm ${product.name} cho khách ${recipientId}; bot dừng trả lời.`);
+    await checkpointTurn(turn, { complete: true });
   } catch (error) {
-    if (claim) await releaseWelcomeClaim(claim);
-    await trace.nodeError(stage, error);
+    await trace?.nodeError(stage, error);
     throw error;
+  } finally {
+    await endCustomerTurn(turn);
   }
 }
 
@@ -468,6 +499,31 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const action = req.query['action'];
 
+    if (action === 'preview_reply') {
+      const text = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+      const senderId = typeof req.body?.sender_id === 'string' ? req.body.sender_id.trim() : '';
+      if (!text || text.length > 4000 || senderId.length > 100) {
+        return res.status(400).json({ error: 'Nhập tin nhắn từ 1 đến 4.000 ký tự.' });
+      }
+      try {
+        let conversation = {};
+        if (senderId) {
+          const client = getSupabase();
+          if (!client) throw new Error('Chưa cấu hình Supabase.');
+          const { data, error } = await client.from('conversations').select('*')
+            .eq('channel', 'facebook').eq('external_user_id', senderId).maybeSingle();
+          if (error) throw new Error('Không tải được ngữ cảnh khách hàng.');
+          if (!data) return res.status(404).json({ error: 'Không tìm thấy hội thoại của khách này.' });
+          conversation = data;
+        }
+        const context = await getReplyContext(conversation, text, { currentMessageSaved: false, persistProduct: false });
+        const result = await generateReply(text, { ...context, systemPrompt: global.openaiSystemPrompt });
+        return res.status(200).json({ ...result, product_name: context.product?.name || null, history_count: context.history.length });
+      } catch (error) {
+        return res.status(502).json({ error: error.message });
+      }
+    }
+
     if (action === 'toggle_auto_reply') {
       try {
         const enabled = !await readAutoReplyEnabled();
@@ -493,135 +549,30 @@ export default async function handler(req, res) {
 
     const body = req.body;
 
-    if (body.object === 'page') {
-      let autoReplyEnabled;
-      try {
-        autoReplyEnabled = await readAutoReplyEnabled();
-      } catch (error) {
-        addTaskLog('Auto-reply', error.message);
-        return res.status(503).json({ error: error.message });
-      }
-      for (const entry of body.entry || []) {
-        for (const [channel, events] of [['messaging', entry.messaging || []], ['standby', entry.standby || []]]) {
-          for (const webhookEvent of events) {
-            const senderPsid = webhookEvent.sender?.id;
-            if (!senderPsid) continue;
-            if (webhookEvent.message?.is_echo) continue;
-            // Tin nhắn đầu tiên có thể là chữ, ảnh, sticker hoặc nút bắt đầu.
-            const receivedText = webhookEvent.message?.text?.trim()
-              || (webhookEvent.message?.attachments?.length ? '[Khách gửi ảnh hoặc tệp]' : null)
-              || (webhookEvent.postback ? webhookEvent.postback.title || webhookEvent.postback.payload || '[Khách bấm nút]' : null);
-            const trace = channel === 'messaging' && receivedText
-              ? await createWorkflowTrace({ customerId: senderPsid, message: receivedText })
-              : null;
-            if (trace) {
-              await trace.nodeStarted('facebook_webhook');
-              await trace.nodeCompleted('facebook_webhook');
-              await trace.edgeTransfer('facebook_webhook', 'parse_message');
-              await trace.nodeStarted('parse_message');
-              await trace.nodeCompleted('parse_message', { message_type: webhookEvent.postback ? 'postback' : webhookEvent.message?.attachments?.length ? 'attachment' : 'text' });
-              await trace.edgeTransfer('parse_message', 'detect_ad');
-              await trace.nodeStarted('detect_ad');
-            }
-            const { adId, location, source } = getAdReferral(webhookEvent);
-            if (trace) {
-              await trace.patch({ ad_id: adId });
-              await trace.nodeCompleted('detect_ad', { ad_id: adId, referral_location: location });
-              await trace.edgeTransfer('detect_ad', 'find_product');
-              await trace.nodeStarted('find_product');
-            }
-            let conversation = null;
-            if (adId) {
-              try {
-                conversation = await getOrCreateConversation(senderPsid);
-                const productId = await updateConversationAd(conversation, adId);
-                conversation = {
-                  ...conversation,
-                  ad_id: adId,
-                  current_product_id: productId || conversation.current_product_id
-                };
-                addTaskLog('Ads', `Khách ${senderPsid}: ad_id ${adId} từ ${channel}.${location}${productId ? ` → sản phẩm ${productId}` : ' (chưa map sản phẩm)'}`);
-              } catch (error) {
-                addTaskLog('Supabase', error.message);
-              }
-            } else if (location) {
-              addTaskLog('Ads', `Khách ${senderPsid}: ${channel}.${location}, source ${source || 'không có'}, nhưng Meta không gửi ad_id`);
-            } else if (channel === 'messaging' && webhookEvent.message?.text) {
-              addTaskLog('Ads', `Khách ${senderPsid}: tin nhắn không có referral/ad_id trong payload Meta`);
-            }
-
-            if (channel === 'standby') continue;
-
-            if (receivedText) {
-              addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
-
-              // LƯU TIN NHẮN VÀO BỘ NHỚ (Để hiển thị lên trang chủ)
-              const currentTime = new Date().toLocaleTimeString('vi-VN', {
-                timeZone: 'Asia/Ho_Chi_Minh',
-                hour12: false
-              });
-              global.messages.push({
-                senderId: senderPsid,
-                adId: adId || conversation?.ad_id || null,
-                text: receivedText,
-                time: currentTime
-              });
-              let contextReady = false;
-              try {
-                conversation ||= await getOrCreateConversation(senderPsid);
-                conversation = await syncFacebookProfile(conversation);
-                await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
-                contextReady = true;
-                await trace?.patch({ product_id: conversation.current_product_id || null });
-                await trace?.nodeCompleted('find_product', { product_id: conversation.current_product_id || null });
-                await trace?.edgeTransfer('find_product', 'check_auto_reply');
-                await trace?.nodeStarted('check_auto_reply');
-                await trace?.nodeCompleted('check_auto_reply', { enabled: autoReplyEnabled });
-              } catch (error) {
-                addTaskLog('Supabase', error.message);
-                await trace?.nodeError('find_product', error);
-              }
-
-              console.log(`Đã lưu tin nhắn hiển thị lên Web: ${receivedText}`);
-
-              // Tự động trả lời khách hàng qua Facebook Messenger nếu đang bật.
-              if (autoReplyEnabled) {
-                try {
-                  if (!contextReady) throw new Error('Thiếu lịch sử hội thoại; không gửi câu trả lời thiếu ngữ cảnh.');
-                  await trace?.edgeTransfer('check_auto_reply', 'ai_agent');
-                  await replyToCustomer(senderPsid, conversation, trace || { nodeStarted: async () => {}, nodeCompleted: async () => {}, edgeTransfer: async () => {}, nodeError: async () => {}, complete: async () => {}, patch: async () => {} });
-                } catch (error) {
-                  addTaskLog('Auto-reply', `Lỗi tư vấn cho khách ${senderPsid}: ${error.message}`);
-                  console.error('Không thể hoàn tất tư vấn:', error);
-                }
-              } else {
-                addTaskLog('Auto-reply', 'Bỏ qua trả lời vì đang tắt');
-                console.log('Tự động trả lời đang tắt.');
-                if (trace && contextReady) {
-                  await trace.edgeTransfer('check_auto_reply', 'ai_agent', { skipped: true });
-                  await trace.nodeStarted('ai_agent', { skipped: true });
-                  await trace.nodeCompleted('ai_agent', { skipped: true });
-                  await trace.edgeTransfer('ai_agent', 'business_logic', { skipped: true });
-                  await trace.nodeStarted('business_logic', { skipped: true });
-                  await trace.nodeCompleted('business_logic', { skipped: true });
-                  await trace.edgeTransfer('business_logic', 'send_messenger', { skipped: true });
-                  await trace.nodeStarted('send_messenger', { skipped: true });
-                  await trace.nodeCompleted('send_messenger', { skipped: true });
-                  await trace.edgeTransfer('send_messenger', 'completed');
-                  await trace.nodeStarted('completed');
-                  await trace.nodeCompleted('completed');
-                  await trace.complete({ reason: 'auto_reply_disabled' });
-                }
-              }
-            }
+    if (body?.object !== 'page') return res.status(404).send('Not Found');
+    let autoReplyEnabled;
+    try {
+      autoReplyEnabled = await readAutoReplyEnabled();
+    } catch (error) {
+      addTaskLog('Auto-reply', error.message);
+      return res.status(503).json({ error: 'Chưa đọc được trạng thái chatbot. Vui lòng thử lại.' });
+    }
+    let shouldRetry = false;
+    for (const entry of body.entry || []) {
+      for (const [channel, events] of [['messaging', entry.messaging || []], ['standby', entry.standby || []]]) {
+        for (const event of events) {
+          try {
+            await processCustomerEvent(event, channel, autoReplyEnabled);
+          } catch (error) {
+            shouldRetry = true;
+            addTaskLog('Auto-reply', `Lỗi tư vấn cho khách ${event.sender?.id}: ${error.message}`);
+            console.error('Không thể hoàn tất tư vấn:', error);
           }
         }
       }
-
-      return res.status(200).send('EVENT_RECEIVED');
-    } else {
-      return res.status(404).send('Not Found');
     }
+    // Meta can retry failed/busy events; completed event IDs are skipped on replay.
+    return res.status(shouldRetry ? 503 : 200).send(shouldRetry ? 'RETRY_EVENT' : 'EVENT_RECEIVED');
   }
 
   res.setHeader('Allow', ['GET', 'POST']);

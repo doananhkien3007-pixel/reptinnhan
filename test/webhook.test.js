@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PROMOTION_MESSAGE, SIZE_QUESTION } from '../server/product-introduction.js';
 
-test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => {
+test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SECRET_KEY = 'test-secret';
   process.env.PAGE_ACCESS_TOKEN = 'test-page-token';
@@ -31,11 +31,13 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
   const storedMessages = [];
   const sentToMessenger = [];
   const aiRequests = [];
-  let aiResult = { reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
+  let aiResult = { intent: 'other', reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
   let aiStatus = 200;
   let responseStatus = 'completed';
   let failHistory = false;
-  let missingMainProduct = false;
+  let multipleProducts = false;
+  let failTextOnce = false;
+  let eventCounter = 0;
   let failAttachmentOnce = null;
   const originalFetch = globalThis.fetch;
   const json = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -62,6 +64,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
         failAttachmentOnce = null;
         return json({ error: 'temporary image error' }, 500);
       }
+      if (failTextOnce && payload.message?.text) { failTextOnce = false; return json({ error: 'temporary send error' }, 500); }
       sentToMessenger.push(payload);
       return json({ message_id: `mid-${sentToMessenger.length}` });
     }
@@ -73,7 +76,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       const stamp = url.searchParams.get('updated_at')?.slice(3);
       if (method === 'POST') {
         const row = JSON.parse(init.body);
-        if (settings.has(row.key) && row.key !== 'auto_reply_enabled') {
+        if (settings.has(row.key) && !new Headers(init.headers).get('prefer')?.includes('resolution=merge-duplicates')) {
           return json({ code: '23505', message: 'duplicate key' }, 409);
         }
         settings.set(row.key, row);
@@ -105,7 +108,7 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
       const select = url.searchParams.get('select');
       if (select === 'images') return json([{ images: product.images }]);
       if (select === 'name,size_guide') return json(single ? product : [product]);
-      return json(single ? product : missingMainProduct ? [{ ...product, name: 'Váy khác' }] : [product]);
+      return json(single ? product : multipleProducts ? [product, { ...product, id: 8, sku: 'VAY-8', name: 'Váy lụa', price: 399000 }] : [product]);
     }
     if (table === 'messenger_messages') {
       if (method === 'POST') {
@@ -141,27 +144,27 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
   };
 
   const { default: handler } = await import('../api/webhook.js');
-  const action = async (method, name) => {
+  const action = async (method, name, body = {}, expectedStatus = 200) => {
     const res = {
       status(code) { this.statusCode = code; return this; },
       json(body) { this.body = body; return this; }
     };
-    await handler({ method, query: { action: name }, body: {} }, res);
-    assert.equal(res.statusCode, 200);
+    await handler({ method, query: { action: name }, body }, res);
+    assert.equal(res.statusCode, expectedStatus);
     return res.body;
   };
-  const deliver = async (message, event = {}) => {
+  const deliver = async (message, event = {}, expectedStatus = 200) => {
     const req = {
       method: 'POST',
       query: {},
-      body: { object: 'page', entry: [{ messaging: [{ sender: { id: 'customer' }, message: typeof message === 'string' ? { text: message } : message, ...event }] }] }
+      body: { object: 'page', entry: [{ messaging: [{ sender: { id: 'customer' }, message: typeof message === 'string' ? { text: message, mid: `event-${++eventCounter}` } : { mid: `event-${++eventCounter}`, ...message }, ...event }] }] }
     };
     const res = {
       status(code) { this.statusCode = code; return this; },
       send(body) { this.body = body; return this; }
     };
     await handler(req, res);
-    assert.equal(res.statusCode, 200);
+    assert.equal(res.statusCode, expectedStatus);
   };
   const originalError = console.error;
   const errors = [];
@@ -175,128 +178,157 @@ test('bot hoàn tất tư vấn sản phẩm chính rồi dừng', async (t) => 
     settings.clear();
     conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: 7 };
     failHistory = false;
-    missingMainProduct = false;
+    multipleProducts = false;
+    failTextOnce = false;
+    aiStatus = 200;
+    responseStatus = 'completed';
+    aiResult = { intent: 'other', reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
     failAttachmentOnce = null;
     settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } });
     await run();
   });
   try {
-    await scenario('khách mới nhận ảnh, thông tin, câu hỏi size rồi im lặng dù khách nhắn tiếp', async () => {
-      delete process.env.OPENAI_API_KEY;
-      try {
-        await deliver('Chào shop');
-        assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || 'text'),
-          ['primary-attachment', 'secondary-attachment', 'video-attachment', 'text', 'text']);
-        assert.equal(sentToMessenger[3].message.text, PROMOTION_MESSAGE);
-        assert.match(sentToMessenger[4].message.text, /cân nặng và chiều cao/);
-        await deliver('chị 53kg cao 1m60');
-        await deliver('giá bao nhiêu');
-        assert.equal(sentToMessenger.length, 5);
-        assert.equal(aiRequests.length, 0);
-      } finally { process.env.OPENAI_API_KEY = 'test-openai-key'; }
-    });
-    await scenario('khóa chào cũ complete nhưng chưa hỏi size vẫn bổ sung đúng câu hỏi', async () => {
-      settings.set('bot_welcome:customer', { key: 'bot_welcome:customer', value: { status: 'complete' } });
-      seed('[Ảnh sản phẩm 1]');
-      seed('[Ảnh sản phẩm 2]');
-      seed('[Video sản phẩm video-attachment]');
-      seed('Mẫu này đang ưu đãi 289K + MIỄN PHÍ SHIP, vải cotton lạnh mềm mát.');
-      await deliver('chị muốn mua');
+    await scenario('khách mới được AI trả lời đúng câu hỏi, không chạy bộ chào cố định', async () => {
+      aiResult = { intent: 'price', reply: 'Dạ mẫu váy hoa có giá 289.000đ chị nhé.', media_ids: [] };
+      await deliver('mẫu này giá bn');
       assert.equal(sentToMessenger.length, 1);
-      assert.match(sentToMessenger[0].message.text, /cân nặng và chiều cao/);
-      await deliver('53kg');
-      assert.equal(sentToMessenger.length, 1);
+      assert.equal(sentToMessenger[0].message.text, aiResult.reply);
+      assert.equal(aiRequests.length, 1);
+      assert.match(aiRequests[0].instructions, /289000/);
+      assert.match(aiRequests[0].instructions, /Cotton lạnh/);
+      assert.equal(aiRequests[0].input.filter(item => item.content === 'mẫu này giá bn').length, 1);
     });
-    await scenario('đã tư vấn đầy đủ trong lịch sử cũ thì không gửi thêm', async () => {
-      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
-      seed('[Video sản phẩm video-attachment]');
-      seed('Giá 289.000đ miễn phí ship, chất vải Cotton lạnh');
-      seed('Chị cho em xin cân nặng và chiều cao nhé');
-      await deliver('cảm ơn');
+    await scenario('khách đã nhận bộ giới thiệu vẫn được tư vấn size và giữ lịch sử', async () => {
+      seed(PROMOTION_MESSAGE); seed(SIZE_QUESTION);
+      aiResult = { intent: 'size', reply: 'Dạ chị 53kg phù hợp size M theo bảng size của mẫu này ạ.', media_ids: [] };
+      await deliver('chị 53kg cao 1m60');
+      assert.equal(sentToMessenger.length, 1);
+      assert.equal(sentToMessenger[0].message.text, aiResult.reply);
+      assert.ok(aiRequests[0].input.some(item => item.role === 'assistant' && item.content === SIZE_QUESTION));
+      aiResult = { intent: 'color', reply: 'Dạ mẫu này có màu đen chị nhé.', media_ids: [] };
+      await deliver('còn màu nào');
+      assert.equal(sentToMessenger.length, 2);
+      assert.ok(aiRequests[1].input.some(item => item.role === 'user' && item.content === 'chị 53kg cao 1m60'));
+      assert.ok(aiRequests[1].input.some(item => item.role === 'assistant' && item.content.includes('size M')));
+    });
+    await scenario('thông tin đặt hàng không kích hoạt lại ảnh chào', async () => {
+      aiResult = { intent: 'order', reply: 'Dạ em đã nhận địa chỉ. Chị cho em xin số điện thoại nhận hàng nhé?', media_ids: ['primary-attachment'] };
+      await deliver('lấy đen size M giao 123 Nguyễn Trãi Hà Nội');
+      assert.equal(sentToMessenger.length, 1);
+      assert.equal(sentToMessenger[0].message.text, aiResult.reply);
+      assert.match(aiRequests[0].instructions, /không nói đã lên đơn/);
+    });
+    await scenario('chỉ gửi media hợp lệ khi khách yêu cầu xem mẫu', async () => {
+      aiResult = { intent: 'media', reply: 'Dạ em gửi chị ảnh và video mẫu này nhé.', media_ids: ['primary-attachment', 'video-attachment'] };
+      await deliver('gửi hình với video');
+      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id),
+        [aiResult.reply, 'primary-attachment', 'video-attachment']);
+    });
+    await scenario('từ chối ID media ngoài sản phẩm đang tư vấn', async () => {
+      aiResult = { intent: 'media', reply: 'Dạ em gửi ảnh.', media_ids: ['unknown-attachment'] };
+      await deliver('cho xem ảnh', {}, 503);
       assert.equal(sentToMessenger.length, 0);
-      assert.equal(aiRequests.length, 0);
+      assert.match(errors.at(-1)[1].message, /không hợp lệ/);
     });
-    await scenario('bấm quảng cáo mới chưa map vẫn giữ lịch sử tư vấn của cùng khách', async () => {
-      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
-      seed('[Video sản phẩm video-attachment]');
-      seed('Giá 289.000đ miễn phí ship, chất vải Cotton lạnh');
-      seed('Chị cho em xin cân nặng và chiều cao nhé');
+    await scenario('không đoán sản phẩm khi có nhiều mẫu chưa chọn', async () => {
+      multipleProducts = true;
+      conversation.current_product_id = null;
+      await deliver('giá bao nhiêu');
+      assert.match(aiRequests[0].instructions, /Chưa xác định sản phẩm/);
+      assert.doesNotMatch(aiRequests[0].instructions, /price_vnd/);
+    });
+    await scenario('ưu tiên mã sản phẩm khách nhắc, không ép về sản phẩm chính', async () => {
+      multipleProducts = true;
+      await deliver('cho chị xem VAY-8');
+      assert.equal(conversation.current_product_id, 8);
+      assert.match(aiRequests[0].instructions, /Váy lụa/);
+      assert.match(aiRequests[0].instructions, /399000/);
+    });
+    await scenario('referral chưa ghép vẫn giữ sản phẩm hội thoại và tiếp tục AI', async () => {
       await deliver('Có miễn phí ship không?', { referral: { ad_id: 'new-unmapped-ad', source: 'ADS' } });
-      assert.equal(sentToMessenger.length, 0);
+      assert.equal(sentToMessenger.length, 1);
       assert.equal(conversation.ad_id, 'new-unmapped-ad');
       assert.equal(conversation.current_product_id, 7);
+      assert.match(aiRequests[0].instructions, /không suy ra từ lời quảng cáo cũ/);
     });
-    await scenario('thiếu nội dung thì gửi đúng mẫu ưu đãi và câu hỏi đã được yêu cầu', async () => {
-      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
-      seed('[Video sản phẩm video-attachment]');
-      seed('289000đ freeship. Chị cho em xin cân nặng');
-      await deliver('53kg');
-      assert.equal(sentToMessenger.length, 2);
-      assert.equal(sentToMessenger[0].message.text, PROMOTION_MESSAGE);
-      assert.equal(sentToMessenger[1].message.text, SIZE_QUESTION);
-    });
-    await scenario('không dùng mẫu cũ hay lịch sử mẫu cũ thay cho váy hoa thiết kế', async () => {
-      conversation.current_product_id = 99;
-      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
-      seed('289K freeship cotton lạnh, cho xin cân nặng chiều cao');
-      await deliver('Chào shop');
-      assert.equal(sentToMessenger.length, 5);
-      assert.equal(conversation.current_product_id, 7);
-      assert.ok(storedMessages.some((message) => message.text === '[Ảnh sản phẩm 7:primary-attachment]'));
-    });
-    await scenario('gửi lỗi giữa chừng thì lần sau chỉ gửi phần thiếu', async () => {
-      failAttachmentOnce = 'secondary-attachment';
-      await deliver('Chào shop');
+    await scenario('Meta gửi lại cùng mid không lưu hay trả lời trùng', async () => {
+      const event = { text: 'chị 53kg', mid: 'same-mid' };
+      await deliver(event);
+      await deliver(event);
       assert.equal(sentToMessenger.length, 1);
-      assert.equal(settings.get('bot_intro_v2:7:customer').value.status, 'retry');
-      await deliver('gửi tiếp');
-      assert.equal(sentToMessenger.length, 5);
-      await deliver('chị 53kg');
-      assert.equal(sentToMessenger.length, 5);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+      assert.equal(aiRequests.length, 1);
     });
-    await scenario('webhook đồng thời không gửi trùng bộ tư vấn', async () => {
-      await Promise.all([deliver('Chào shop'), deliver('giá sao'), deliver('xin thông tin')]);
-      assert.equal(sentToMessenger.length, 5);
+    await scenario('gửi lỗi giữa chừng, thử lại tiếp từ bước chưa gửi', async () => {
+      aiResult = { intent: 'media', reply: 'Dạ em gửi chị hai ảnh.', media_ids: ['primary-attachment', 'secondary-attachment'] };
+      const event = { text: 'gửi hình', mid: 'retry-media' };
+      failAttachmentOnce = 'secondary-attachment';
+      await deliver(event, {}, 503);
+      assert.equal(sentToMessenger.length, 2);
+      await deliver(event);
+      assert.equal(sentToMessenger.length, 3);
+      assert.equal(aiRequests.length, 1);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+      assert.equal(sentToMessenger[2].message.attachment.payload.attachment_id, 'secondary-attachment');
+    });
+    await scenario('lỗi OpenAI được ghi nhận, thử lại không mất tin khách', async () => {
+      aiStatus = 500;
+      const event = { text: 'chị cần tư vấn', mid: 'retry-ai' };
+      await deliver(event, {}, 503);
+      assert.equal(sentToMessenger.length, 0);
+      aiStatus = 200;
+      await deliver(event);
+      assert.equal(sentToMessenger.length, 1);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+    });
+    await scenario('không gửi output dở dang hoặc lời nhắn quá dài', async () => {
+      responseStatus = 'incomplete';
+      await deliver('tư vấn', {}, 503);
+      responseStatus = 'completed';
+      aiResult.reply = 'x'.repeat(2001);
+      await deliver('tư vấn lại', {}, 503);
+      assert.equal(sentToMessenger.length, 0);
+    });
+    await scenario('lịch sử lỗi thì không gửi thiếu ngữ cảnh', async () => {
+      failHistory = true;
+      await deliver('Chào shop', {}, 503);
+      assert.equal(sentToMessenger.length, 0);
       assert.equal(aiRequests.length, 0);
     });
-    await scenario('kiểm tra lịch sử đầy đủ vượt 500 tin, không chỉ 40 tin gần nhất', async () => {
-      seed('[Ảnh sản phẩm 1]'); seed('[Ảnh sản phẩm 2]');
-      seed('[Video sản phẩm video-attachment]');
-      for (let i = 0; i < 501; i++) seed('Tin shop cũ');
-      seed('289K freeship cotton lạnh. Chị cho em cân nặng và chiều cao');
-      await deliver('Chào shop');
-      assert.equal(sentToMessenger.length, 0);
+    await scenario('khách nhắn đồng thời được retry, không làm mất lượt sau', async () => {
+      const first = deliver({ text: 'giá bao nhiêu', mid: 'parallel-first' });
+      // The first request owns the lease before the second event arrives.
+      while (!settings.get('ai_conversation:customer')) await new Promise(resolve => setImmediate(resolve));
+      await deliver({ text: 'chị 53kg', mid: 'parallel-second' }, {}, 503);
+      await first;
+      await deliver({ text: 'chị 53kg', mid: 'parallel-second' });
+      assert.equal(sentToMessenger.length, 2);
+      assert.equal(aiRequests.length, 2);
+      assert.ok(aiRequests[1].input.some(item => item.content === 'giá bao nhiêu'));
     });
-    await scenario('không coi nội dung khách tự nhắn là đã được shop tư vấn', async () => {
-      await deliver('289K freeship cotton lạnh cân nặng chiều cao');
-      assert.equal(sentToMessenger.length, 5);
-    });
-    await scenario('không tìm thấy sản phẩm chính hoặc lỗi lịch sử thì không đoán', async () => {
-      missingMainProduct = true;
-      await deliver('Chào shop');
-      assert.equal(sentToMessenger.length, 0);
-      assert.match(errors.at(-1)[1].message, /Váy hoa thiết kế/);
-      missingMainProduct = false;
-      failHistory = true;
-      await deliver('Chào shop');
-      assert.equal(sentToMessenger.length, 0);
-      assert.match(errors.at(-1)[1].message, /history unavailable/);
-    });
-    await scenario('đã gửi hình nhưng khóa complete sai vẫn gửi video rồi hai tin còn thiếu', async () => {
-      seed('[Ảnh sản phẩm 7:primary-attachment]'); seed('[Ảnh sản phẩm 7:secondary-attachment]');
-      settings.set('bot_intro_v2:7:customer', { key: 'bot_intro_v2:7:customer', value: { status: 'complete' }, updated_at: '2026-10-01T00:00:00Z' });
-      await deliver('Tư vấn giúp chị');
-      assert.deepEqual(sentToMessenger.map((item) => item.message.attachment?.payload.attachment_id || item.message.text),
-        ['video-attachment', PROMOTION_MESSAGE, SIZE_QUESTION]);
-      await deliver('chị 53kg');
-      assert.equal(sentToMessenger.length, 3);
-    });
-    await scenario('tắt bot và echo không gửi tư vấn', async () => {
+    await scenario('tắt bot và echo không gọi AI hoặc gửi tin', async () => {
       await deliver({ text: 'tin shop', is_echo: true });
-      assert.equal(sentToMessenger.length, 0);
       await action('POST', 'toggle_auto_reply');
       await deliver('Chào shop');
       assert.equal(sentToMessenger.length, 0);
+      assert.equal(aiRequests.length, 0);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+    });
+    await scenario('xem trước dùng ngữ cảnh nhưng không gửi tin hoặc đổi sản phẩm khách', async () => {
+      multipleProducts = true;
+      seed('Chị muốn xem mẫu nào ạ?');
+      const result = await action('POST', 'preview_reply', { message: 'VAY-8 giá bao nhiêu', sender_id: 'customer' });
+      assert.equal(result.product_name, 'Váy lụa');
+      assert.equal(result.history_count, 1);
+      assert.equal(conversation.current_product_id, 7);
+      assert.equal(sentToMessenger.length, 0);
+      assert.equal(storedMessages.length, 1);
+      assert.equal(aiRequests.length, 1);
+      assert.match(aiRequests[0].instructions, /399000/);
+    });
+    await scenario('xem trước chặn tin rỗng hoặc quá dài trước khi gọi AI', async () => {
+      await action('POST', 'preview_reply', { message: ' ' }, 400);
+      await action('POST', 'preview_reply', { message: 'x'.repeat(4001) }, 400);
       assert.equal(aiRequests.length, 0);
     });
   } finally {

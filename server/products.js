@@ -197,6 +197,7 @@ export async function getRecentConversationMessages(conversationId, limit = 10) 
     .select('direction, text, created_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(limit);
   if (error) throw new Error(`Không thể lấy lịch sử conversation: ${error.message}`);
   return (data || []).reverse();
