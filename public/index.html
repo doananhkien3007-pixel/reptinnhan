@@ -6,13 +6,22 @@
   <title>Tin nhắn từ Facebook</title>
   <style>
     body { font-family: Arial, sans-serif; background: #f0f2f5; padding: 20px; }
-    .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .container { max-width: 860px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     h2 { color: #1877f2; text-align: center; }
-    .message { background: #e4e6eb; padding: 10px 15px; border-radius: 15px; margin-bottom: 10px; display: inline-block; max-width: 80%; }
-    .message-row { margin-bottom: 15px; }
-    .time { font-size: 11px; color: #65676b; margin-left: 5px; }
-    .sender { font-size: 12px; font-weight: bold; color: #1877f2; margin-bottom: 2px; }
-    #chat-box { height: 400px; overflow-y: auto; padding-right: 10px; }
+    .message { background: #e4e6eb; padding: 10px 15px; border-radius: 16px; display: inline-block; max-width: 78%; line-height: 1.45; overflow-wrap: anywhere; }
+    .message-row { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 10px; }
+    .message-row.outbound { align-items: flex-end; }
+    .message-row.outbound .message { background: #e7f0ff; color: #123a70; }
+    .message-meta { margin: 0 5px 4px; font-size: 11px; color: #65676b; }
+    .conversation-group { margin-bottom: 18px; border: 1px solid #dfe3e8; border-radius: 12px; overflow: hidden; background: #fafbfc; }
+    .conversation-label { display: flex; align-items: center; gap: 10px; padding: 11px 13px; background: #f0f5ff; border-bottom: 1px solid #d9e5fb; }
+    .conversation-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: #1877f2; color: white; font-weight: bold; }
+    .conversation-info { min-width: 0; flex: 1; }
+    .conversation-info strong { display: block; color: #0f4fa8; font-size: 13px; overflow-wrap: anywhere; }
+    .conversation-ad { margin-top: 2px; color: #65676b; font-size: 11px; overflow-wrap: anywhere; }
+    .message-count { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; background: white; color: #516174; font-size: 11px; }
+    .conversation-messages { padding: 12px 13px 4px; }
+    #chat-box { height: 520px; overflow-y: auto; padding-right: 10px; }
     .reply-control { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; padding: 10px 12px; background: #f7f8fa; border-radius: 8px; }
     #reply-toggle { border: 0; border-radius: 6px; padding: 8px 14px; color: white; cursor: pointer; background: #1877f2; }
     #reply-toggle.off { background: #65676b; }
@@ -72,12 +81,23 @@
           return;
         }
 
-        chatBox.innerHTML = messages.map(msg => 
-          '<div class="message-row">' +
-            '<div class="sender">' + (msg.direction === 'outbound' ? 'Bot gửi · ' : 'Khách gửi · ') + 'ID Khách: ' + escapeHtml(msg.senderId) + (msg.adId ? ' · Ads ID cuộc trò chuyện: ' + escapeHtml(msg.adId) : ' · Cuộc trò chuyện chưa có Ads ID') + ' <span class="time">' + escapeHtml(msg.time) + '</span></div>' +
-            '<div class="message">' + escapeHtml(msg.text) + '</div>' +
-          '</div>'
-        ).join('');
+        chatBox.innerHTML = groupMessagesByCustomer(messages).map((conversation) => {
+          const latestAdId = [...conversation.adIds].at(-1);
+          return '<section class="conversation-group">' +
+            '<header class="conversation-label">' +
+              '<div class="conversation-avatar">K</div>' +
+              '<div class="conversation-info"><strong>Khách · ID ' + escapeHtml(conversation.senderId) + '</strong>' +
+                '<div class="conversation-ad">' + (latestAdId ? 'Ads ID: ' + escapeHtml(latestAdId) : 'Chưa có Ads ID') + '</div></div>' +
+              '<span class="message-count">' + conversation.messages.length + ' tin</span>' +
+            '</header>' +
+            '<div class="conversation-messages">' + conversation.messages.map((msg) =>
+              '<div class="message-row ' + (msg.direction === 'outbound' ? 'outbound' : 'inbound') + '">' +
+                '<div class="message-meta">' + (msg.direction === 'outbound' ? 'Bot gửi' : 'Khách gửi') + ' · ' + escapeHtml(msg.time) + '</div>' +
+                '<div class="message">' + escapeHtml(msg.text) + '</div>' +
+              '</div>'
+            ).join('') + '</div>' +
+          '</section>';
+        }).join('');
         
         // Tự động cuộn xuống dưới cùng
         chatBox.scrollTop = chatBox.scrollHeight;
@@ -89,6 +109,20 @@
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+    }
+
+    function groupMessagesByCustomer(messages) {
+      const conversations = new Map();
+      for (const message of messages) {
+        const senderId = String(message.senderId || 'unknown');
+        if (!conversations.has(senderId)) {
+          conversations.set(senderId, { senderId, adIds: new Set(), messages: [] });
+        }
+        const conversation = conversations.get(senderId);
+        if (message.adId) conversation.adIds.add(String(message.adId));
+        conversation.messages.push(message);
+      }
+      return [...conversations.values()];
     }
 
     let autoReplyEnabled = true;
