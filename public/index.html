@@ -1,248 +1,55 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tin nhắn từ Facebook</title>
-  <style>
-    body { font-family: Arial, sans-serif; background: #f0f2f5; padding: 20px; }
-    .container { max-width: 860px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    h2 { color: #1877f2; text-align: center; }
-    .message { background: #e4e6eb; padding: 10px 15px; border-radius: 16px; display: inline-block; max-width: 78%; line-height: 1.45; overflow-wrap: anywhere; }
-    .message-row { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 10px; }
-    .message-row.outbound { align-items: flex-end; }
-    .message-row.outbound .message { background: #e7f0ff; color: #123a70; }
-    .message-meta { margin: 0 5px 4px; font-size: 11px; color: #65676b; }
-    .conversation-group { margin-bottom: 18px; border: 1px solid #dfe3e8; border-radius: 12px; overflow: hidden; background: #fafbfc; }
-    .conversation-label { display: flex; align-items: center; gap: 10px; padding: 11px 13px; background: #f0f5ff; border-bottom: 1px solid #d9e5fb; }
-    .conversation-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: #1877f2; color: white; font-weight: bold; object-fit: cover; }
-    .conversation-info { min-width: 0; flex: 1; }
-    .conversation-info strong { display: block; color: #0f4fa8; font-size: 13px; overflow-wrap: anywhere; }
-    .conversation-ad { margin-top: 2px; color: #65676b; font-size: 11px; overflow-wrap: anywhere; }
-    .message-count { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; background: white; color: #516174; font-size: 11px; }
-    .conversation-messages { padding: 12px 13px 4px; }
-    #chat-box { height: 520px; overflow-y: auto; padding-right: 10px; }
-    .reply-control { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; padding: 10px 12px; background: #f7f8fa; border-radius: 8px; }
-    #reply-toggle { border: 0; border-radius: 6px; padding: 8px 14px; color: white; cursor: pointer; background: #1877f2; }
-    #reply-toggle.off { background: #65676b; }
-    .openai-control { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
-    #test-openai { padding: 7px 12px; border: 1px solid #1877f2; border-radius: 6px; color: #1877f2; background: white; cursor: pointer; }
-    #openai-status { font-size: 12px; color: #65676b; }
-    .task-log { margin-top: 15px; }
-    .task-log-header { display: flex; align-items: center; justify-content: space-between; }
-    .task-log-header button { padding: 6px 10px; border: 1px solid #ccd0d5; border-radius: 6px; background: white; cursor: pointer; }
-    #task-log { max-height: 180px; overflow-y: auto; padding: 10px; background: #1f2329; color: #d1d5db; border-radius: 6px; font: 12px/1.5 monospace; white-space: pre-wrap; }
-    .prompt-settings { margin: 15px 0; }
-    #system-prompt { width: 100%; min-height: 100px; box-sizing: border-box; padding: 9px; border: 1px solid #ccd0d5; border-radius: 6px; font: 13px/1.4 Arial, sans-serif; resize: vertical; }
-    #save-prompt { margin-top: 7px; padding: 8px 12px; border: 0; border-radius: 6px; color: white; background: #1877f2; cursor: pointer; }
-    #prompt-status { margin-left: 8px; font-size: 12px; color: #65676b; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103e2c">
+  <meta name="description" content="LeafChat — Quản lý hội thoại Facebook và chăm sóc khách hàng với trợ lý AI.">
+  <title>Hộp thư · LeafChat</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/inbox.css">
+  <script src="/app-shell.js" defer></script>
+  <script src="/inbox.js" defer></script>
 </head>
-<body>
-  <div class="container">
-    <h2>💬 Tin nhắn từ Khách hàng</h2>
-    <p style="text-align:right; margin:0 0 12px;"><a href="/products">Quản lý sản phẩm</a> · <a href="/ads">Ads &amp; sản phẩm</a></p>
-    <div class="reply-control">
-      <span id="reply-status">Đang kiểm tra trạng thái...</span>
-      <button id="reply-toggle" type="button">...</button>
-    </div>
-    <div class="openai-control">
-      <button id="test-openai" type="button">Test kết nối OpenAI</button>
-      <span id="openai-status"></span>
-    </div>
-    <div class="prompt-settings">
-      <strong>System Prompt</strong>
-      <textarea id="system-prompt" placeholder="Nhập hướng dẫn cho trợ lý OpenAI..."></textarea>
-      <button id="save-prompt" type="button">Lưu System Prompt</button>
-      <span id="prompt-status"></span>
-    </div>
-    <div class="task-log">
-      <div class="task-log-header">
-        <strong>Task Log</strong>
-        <button id="refresh-log" type="button">Làm mới log</button>
-      </div>
-      <pre id="task-log">Chưa tải log.</pre>
-    </div>
-    <div id="chat-box">Đang tải tin nhắn...</div>
-  </div>
-
-  <script>
-    async function fetchMessages() {
-      try {
-        const res = await fetch('/api/webhook?action=get_messages');
-        const messages = await res.json();
-        if (!res.ok || !Array.isArray(messages)) {
-          throw new Error(messages?.error || 'Không đọc được danh sách tin nhắn.');
-        }
-        
-        const chatBox = document.getElementById('chat-box');
-        if (messages.length === 0) {
-          chatBox.innerHTML = '<p style="text-align:center; color:#65676b;">Chưa có tin nhắn nào.</p>';
-          return;
-        }
-
-        chatBox.innerHTML = groupMessagesByCustomer(messages).map((conversation) => {
-          const latestAdId = [...conversation.adIds].at(-1);
-          return '<section class="conversation-group">' +
-            '<header class="conversation-label">' +
-              (conversation.profilePic ? '<img class="conversation-avatar" src="' + escapeHtml(conversation.profilePic) + '" alt="">' : '<div class="conversation-avatar">K</div>') +
-              '<div class="conversation-info"><strong>' + escapeHtml(conversation.customerName || 'Khách') + ' · ID ' + escapeHtml(conversation.senderId) + '</strong>' +
-                '<div class="conversation-ad">' + (latestAdId ? 'Ads ID: ' + escapeHtml(latestAdId) : 'Chưa có Ads ID') + '</div></div>' +
-              '<span class="message-count">' + conversation.messages.length + ' tin</span>' +
-            '</header>' +
-            '<div class="conversation-messages">' + conversation.messages.map((msg) =>
-              '<div class="message-row ' + (msg.direction === 'outbound' ? 'outbound' : 'inbound') + '">' +
-                '<div class="message-meta">' + (msg.direction === 'outbound' ? 'Bot gửi' : 'Khách gửi') + ' · ' + escapeHtml(msg.time) + '</div>' +
-                '<div class="message">' + escapeHtml(msg.text) + '</div>' +
-              '</div>'
-            ).join('') + '</div>' +
-          '</section>';
-        }).join('');
-        
-        // Tự động cuộn xuống dưới cùng
-        chatBox.scrollTop = chatBox.scrollHeight;
-      } catch (err) {
-        console.error('Lỗi khi lấy tin nhắn', err);
-        document.getElementById('chat-box').textContent = 'Không tải được tin nhắn: ' + err.message;
-      }
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-    }
-
-    function groupMessagesByCustomer(messages) {
-      const conversations = new Map();
-      for (const message of messages) {
-        const senderId = String(message.senderId || 'unknown');
-        if (!conversations.has(senderId)) {
-          conversations.set(senderId, { senderId, customerName: null, profilePic: null, adIds: new Set(), messages: [] });
-        }
-        const conversation = conversations.get(senderId);
-        if (message.customerName) conversation.customerName = message.customerName;
-        if (message.profilePic) conversation.profilePic = message.profilePic;
-        if (message.adId) conversation.adIds.add(String(message.adId));
-        conversation.messages.push(message);
-      }
-      return [...conversations.values()];
-    }
-
-    let autoReplyEnabled = true;
-
-    function updateReplyControl() {
-      const status = document.getElementById('reply-status');
-      const button = document.getElementById('reply-toggle');
-      status.textContent = autoReplyEnabled ? 'Tự động trả lời: BẬT' : 'Tự động trả lời: TẮT';
-      button.textContent = autoReplyEnabled ? 'Tắt' : 'Bật';
-      button.classList.toggle('off', !autoReplyEnabled);
-    }
-
-    async function loadReplyStatus() {
-      const res = await fetch('/api/webhook?action=auto_reply_status');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Không lấy được trạng thái');
-      autoReplyEnabled = data.enabled;
-      updateReplyControl();
-    }
-
-    document.getElementById('reply-toggle').addEventListener('click', async () => {
-      const button = document.getElementById('reply-toggle');
-      button.disabled = true;
-      try {
-        const res = await fetch('/api/webhook?action=toggle_auto_reply', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Không thể đổi trạng thái');
-        autoReplyEnabled = data.enabled;
-        updateReplyControl();
-      } catch (error) {
-        document.getElementById('reply-status').textContent = `Lỗi: ${error.message}`;
-      } finally {
-        button.disabled = false;
-      }
-    });
-
-    document.getElementById('test-openai').addEventListener('click', async () => {
-      const status = document.getElementById('openai-status');
-      const button = document.getElementById('test-openai');
-      button.disabled = true;
-      status.textContent = 'Đang kiểm tra...';
-      try {
-        const res = await fetch('/api/webhook?action=test_openai');
-        const data = await res.json();
-        status.textContent = res.ok
-          ? `Kết nối thành công (${data.reply})`
-          : `Lỗi: ${data.error}`;
-        status.style.color = res.ok ? '#31a24c' : '#d93025';
-      } catch (error) {
-        status.textContent = 'Không gọi được webhook.';
-        status.style.color = '#d93025';
-      } finally {
-        button.disabled = false;
-      }
-    });
-
-    async function loadTaskLogs() {
-      const res = await fetch('/api/webhook?action=get_task_logs');
-      const logs = await res.json();
-      document.getElementById('task-log').textContent = logs.length
-        ? logs.map(log => `[${log.time}] [${log.action}] ${log.detail}`).join('\n')
-        : 'Chưa có log.';
-      const logBox = document.getElementById('task-log');
-      logBox.scrollTop = logBox.scrollHeight;
-    }
-
-    async function loadSystemPrompt() {
-      const res = await fetch('/api/webhook?action=get_system_prompt');
-      const data = await res.json();
-      document.getElementById('system-prompt').value = data.prompt || '';
-    }
-
-    document.getElementById('save-prompt').addEventListener('click', async () => {
-      const prompt = document.getElementById('system-prompt').value;
-      const status = document.getElementById('prompt-status');
-      const button = document.getElementById('save-prompt');
-      button.disabled = true;
-      status.textContent = 'Đang lưu...';
-      try {
-        const res = await fetch('/api/webhook?action=set_system_prompt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        const data = await res.json();
-        status.textContent = res.ok ? 'Đã lưu.' : (data.error || 'Lưu thất bại.');
-        status.style.color = res.ok ? '#31a24c' : '#d93025';
-      } catch (error) {
-        status.textContent = 'Không gọi được webhook.';
-        status.style.color = '#d93025';
-      } finally {
-        button.disabled = false;
-      }
-    });
-
-    document.getElementById('refresh-log').addEventListener('click', () => {
-      loadTaskLogs().catch(() => {
-        document.getElementById('task-log').textContent = 'Không tải được task log.';
-      });
-    });
-
-    // Gọi lần đầu tiên
-    fetchMessages();
-    loadTaskLogs().catch(() => {
-      document.getElementById('task-log').textContent = 'Không tải được task log.';
-    });
-    loadSystemPrompt().catch(() => {
-      document.getElementById('prompt-status').textContent = 'Không tải được System Prompt.';
-    });
-    loadReplyStatus().catch(() => {
-      document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
-    });
-    
-    // Làm mới nhanh để tin nhắn khách hiện gần như ngay lập tức.
-    setInterval(fetchMessages, 1000);
-    setInterval(() => loadReplyStatus().catch(() => {
-      document.getElementById('reply-status').textContent = 'Không lấy được trạng thái';
-    }), 10000);
-  </script>
+<body data-page="inbox">
+  <main class="page-main">
+    <section class="page-heading">
+      <div><span class="eyebrow">KẾT NỐI & CHĂM SÓC</span><h1>Hộp thư khách hàng</h1><p>Mọi cuộc trò chuyện, trong một không gian.</p></div>
+      <div class="heading-actions"><button class="btn" id="open-logs" type="button"><span data-icon="log"></span>Nhật ký</button><button class="btn btn-primary" id="open-settings" type="button"><span data-icon="spark"></span>Cấu hình trợ lý AI</button></div>
+    </section>
+    <section class="inbox-metrics" aria-label="Tổng quan tin nhắn đang tải">
+      <article class="stat-card"><div class="stat-icon" data-icon="chat"></div><div><span>Cuộc trò chuyện</span><strong id="metric-customers">—</strong><small>Trong danh sách hiện tại</small></div><span class="stat-decoration">↗</span></article>
+      <article class="stat-card"><div class="stat-icon warm" data-icon="clock"></div><div><span>Chờ phản hồi</span><strong id="metric-pending">—</strong><small>Tin gần nhất từ khách</small></div></article>
+      <article class="stat-card"><div class="stat-icon sage" data-icon="spark"></div><div><span>Tin nhắn AI đã gửi</span><strong id="metric-replies">—</strong><small>Trong lịch sử đang tải</small></div></article>
+      <article class="stat-card automation-card"><div class="stat-icon" data-icon="shield"></div><div><span>Trợ lý tự động</span><strong id="reply-status" class="automation-status">Đang kiểm tra…</strong><small id="reply-description">Hỗ trợ trả lời khách hàng</small></div><button id="reply-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="Bật trả lời tự động" disabled><span></span></button></article>
+    </section>
+    <section class="inbox-workspace" aria-label="Hộp thư Messenger">
+      <aside class="conversation-list-panel">
+        <div class="list-heading"><h2>Tin nhắn <span id="list-count">0</span></h2><button class="icon-button" id="refresh-messages" type="button" aria-label="Làm mới tin nhắn"><span data-icon="refresh"></span></button></div>
+        <label class="search-field"><span data-icon="search"></span><input id="conversation-search" type="search" placeholder="Tìm khách, ID hoặc tin nhắn…" aria-label="Tìm khách, ID hoặc tin nhắn"></label>
+        <div class="inbox-filters" role="group" aria-label="Lọc hội thoại"><button type="button" data-filter="all" aria-pressed="true">Tất cả</button><button type="button" data-filter="pending" aria-pressed="false">Chờ trả lời</button><button type="button" data-filter="replied" aria-pressed="false">Đã trả lời</button></div>
+        <div id="conversation-list" class="conversation-list" aria-label="Danh sách khách hàng"><div class="empty-state compact">Đang tải hội thoại…</div></div>
+        <div class="sync-status" id="sync-status" role="status"><span class="sync-dot"></span><span id="sync-label">Đang kết nối…</span></div>
+      </aside>
+      <section class="conversation-detail" aria-label="Nội dung hội thoại">
+        <header class="chat-header"><button class="icon-button mobile-back" id="back-to-list" type="button" aria-label="Quay lại danh sách khách"><span data-icon="back"></span></button><div id="chat-heading" class="chat-heading"><span class="avatar placeholder-avatar">?</span><div><strong>Không gian hội thoại</strong><small>Chọn một khách hàng để bắt đầu</small></div></div><span class="channel-tag">Messenger</span></header>
+        <div id="chat-box" class="chat-box"><div class="empty-state"><span data-icon="chat"></span><strong>Mỗi tin nhắn là một kết nối</strong><p>Hội thoại từ Facebook sẽ xuất hiện ở đây.</p></div></div>
+        <footer class="chat-footer"><span class="footer-ai" data-icon="spark"></span><div><strong id="chat-ai-status">Trợ lý AI của bạn</strong><span>Hội thoại được cập nhật tự động từ Messenger.</span></div><span class="footer-dot"></span></footer>
+      </section>
+      <aside id="customer-panel" class="customer-panel" aria-label="Thông tin khách hàng"><div class="customer-placeholder"><span data-icon="chat"></span><p>Thông tin khách hàng<br>hiển thị tại đây.</p></div></aside>
+    </section>
+    <div class="page-footnote"><span>LEAFCHAT WORKSPACE</span><span>Hiển thị tối đa 200 tin nhắn gần nhất · Tự động cập nhật</span></div>
+  </main>
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+    <form method="dialog" class="dialog-heading"><div><span class="eyebrow">AI ASSISTANT</span><h2 id="settings-title">Cấu hình trợ lý AI</h2></div><button class="icon-button" aria-label="Đóng cấu hình"><span data-icon="close"></span></button></form>
+    <p class="dialog-description">Hướng dẫn cách trợ lý tư vấn sản phẩm, sử dụng giọng văn và phản hồi khách hàng.</p>
+    <label class="field-label" for="system-prompt">Hướng dẫn cho trợ lý</label><textarea id="system-prompt" placeholder="Ví dụ: Tư vấn thân thiện, hỏi nhu cầu của khách trước khi giới thiệu sản phẩm…"></textarea>
+    <div class="dialog-actions"><span id="prompt-status" role="status"></span><button id="save-prompt" class="btn btn-primary" type="button">Lưu hướng dẫn</button></div>
+    <div class="connection-check"><div><strong>Kết nối AI</strong><p>Kiểm tra trợ lý có sẵn sàng phản hồi hay không.</p></div><button id="test-openai" class="btn" type="button">Kiểm tra kết nối</button></div><p id="openai-status" role="status"></p>
+  </dialog>
+  <dialog id="logs-dialog" class="settings-dialog logs-dialog" aria-labelledby="logs-title">
+    <form method="dialog" class="dialog-heading"><div><span class="eyebrow">HOẠT ĐỘNG HỆ THỐNG</span><h2 id="logs-title">Nhật ký xử lý</h2></div><button class="icon-button" aria-label="Đóng nhật ký"><span data-icon="close"></span></button></form>
+    <p class="dialog-description">Theo dõi quá trình nhận tin nhắn và phản hồi của chatbot.</p><button id="refresh-log" class="btn" type="button"><span data-icon="refresh"></span>Làm mới nhật ký</button><pre id="task-log">Chưa tải nhật ký.</pre>
+  </dialog>
 </body>
 </html>

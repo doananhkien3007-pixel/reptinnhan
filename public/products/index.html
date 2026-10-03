@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quản lý sản phẩm</title>
+  <title>Sản phẩm · LeafChat</title>
   <style>
     :root { font-family: Arial, sans-serif; color: #1f2937; background: #f3f4f6; }
     body { margin: 0; padding: 24px; }
@@ -45,8 +45,10 @@
     .mapping-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .variant-row { grid-template-columns: 1fr auto; } }
   </style>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app-shell.js" defer></script>
 </head>
-<body>
+<body data-page="products">
   <main class="wrap">
     <div class="card">
       <h1>Quản lý sản phẩm</h1>
