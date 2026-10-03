@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   fetchFacebookAds,
   getCreativeCover,
@@ -7,6 +8,12 @@ import {
   normalizeAdAccountId,
   suggestProductForAd
 } from '../api/services/facebook-ads.js';
+
+test('Ads API dùng token Marketing riêng, không dùng token Messenger', () => {
+  const source = fs.readFileSync(new URL('../api/facebook-ads.js', import.meta.url), 'utf8');
+  assert.match(source, /process\.env\.FB_MARKETING_ACCESS_TOKEN/);
+  assert.doesNotMatch(source, /process\.env\.PAGE_ACCESS_TOKEN|process\.env\.META_ACCESS_TOKEN/);
+});
 
 test('chuẩn hoá ad account và không chấp nhận ID không an toàn', () => {
   assert.equal(normalizeAdAccountId('123456'), 'act_123456');

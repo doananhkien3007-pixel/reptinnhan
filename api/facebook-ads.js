@@ -23,10 +23,10 @@ export default async function handler(req, res) {
 
   try {
     const supabase = requireSupabase();
-    const accessToken = process.env.FB_MARKETING_ACCESS_TOKEN
-      || process.env.META_ACCESS_TOKEN
-      || process.env.PAGE_ACCESS_TOKEN;
-    const accountId = process.env.FB_AD_ACCOUNT_ID || process.env.AD_ACCOUNT_ID;
+    // Marketing API uses its own credential. Never fall back to the Page token
+    // because the Messenger token normally does not have ads_read permission.
+    const accessToken = process.env.FB_MARKETING_ACCESS_TOKEN;
+    const accountId = process.env.FB_AD_ACCOUNT_ID;
     const version = process.env.GRAPH_API_VERSION || 'v26.0';
     const [facebook, productResult, mappingResult] = await Promise.all([
       fetchFacebookAds({ accountId, accessToken, version }),

@@ -123,7 +123,7 @@ export function suggestProductForAd(ad, products = []) {
 }
 
 export async function fetchFacebookAds({ accountId, accessToken, version = DEFAULT_GRAPH_VERSION, fetchImpl = fetch }) {
-  if (!accessToken) throw new Error('Thiếu access token Facebook có quyền ads_read.');
+  if (!accessToken) throw new Error('Thiếu FB_MARKETING_ACCESS_TOKEN riêng có quyền ads_read. Không dùng PAGE_ACCESS_TOKEN của Messenger.');
   const graphVersion = /^v\d+\.\d+$/.test(String(version)) ? String(version) : DEFAULT_GRAPH_VERSION;
   const normalizedAccountId = await resolveAdAccountId({
     accountId, accessToken, version: graphVersion, fetchImpl
