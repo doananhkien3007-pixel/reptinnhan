@@ -2,7 +2,9 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { requireSupabase } from './supabase.js';
 import { advanceCheckout } from './order-checkout.js';
 
-export const ordersEnabled = () => process.env.AUTO_ORDERS_ENABLED === 'true';
+// Order capture is available by default once the database migration exists.
+// Set AUTO_ORDERS_ENABLED=false only when an operator explicitly wants to pause it.
+export const ordersEnabled = () => process.env.AUTO_ORDERS_ENABLED !== 'false';
 
 export async function readCheckout(conversationId) {
   const { data, error } = await requireSupabase().from('order_checkouts').select('state, revision').eq('conversation_id', conversationId).maybeSingle();

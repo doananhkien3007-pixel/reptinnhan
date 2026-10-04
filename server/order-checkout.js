@@ -50,6 +50,20 @@ export function normalizePhone(value) {
   return /^0(?:[35789]\d{8}|2\d{9})$/.test(phone) ? phone : null;
 }
 
+export function hasExplicitPurchaseIntent(messages = []) {
+  let confirmed = false;
+  for (const message of messages.filter(item => item?.direction === 'inbound' && item.text)) {
+    const text = normalized(message.text);
+    if (/\b(khong mua|khong lay|chua chot|huy|dung dat|thoi khong)\b/.test(text)) {
+      confirmed = false;
+      continue;
+    }
+    if (/\b(chot|mua|lay|dat|giao)\b/.test(text) &&
+        !/\b(neu|gia su|de suy nghi|hoi gia|bao nhieu)\b/.test(text)) confirmed = true;
+  }
+  return confirmed;
+}
+
 function grounded(item, texts, phone = false) {
   if (!item?.value?.trim() || !item.source?.trim()) return null;
   const source = normalized(item.source);
@@ -144,6 +158,9 @@ export function advanceCheckout({ previous = {}, extraction, conversation, conte
   // Never silently reduce a multi-item order to its first product.
   if (extraction.multiple_items) state.needs_review = true;
   if (!state.confirmed) return { state, reply: null, order: null };
+  // Recovery from stored conversation history may establish confirmation before
+  // the current message, so ensure it receives the same stable checkout ID.
+  state.checkout_id ||= newId();
   if (state.needs_review) return { state, reply: 'Chị đang chọn nhiều mẫu/size khác nhau. Em đã ghi nhận để shop kiểm tra đủ từng món trước khi tạo đơn, tránh thiếu sản phẩm ạ.', order: null };
   const missing = missingOrderFields(state);
   state.missing = missing;

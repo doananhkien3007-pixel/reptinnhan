@@ -21,7 +21,8 @@ Khách chốt mua → AI trích thông tin có bằng chứng từ tin khách �
 2. Cấu hình server (không đưa vào frontend, không gửi secret trong chat):
    - `FB_APP_SECRET`: App Secret của Meta app nhận webhook (khác Page access token).
    - `ORDERS_ADMIN_TOKEN`: mã ngẫu nhiên ít nhất 24 ký tự, chỉ dùng khi đổi trạng thái đơn. Việc xem danh sách không yêu cầu mã.
-   - `AUTO_ORDERS_ENABLED=true` sau khi cấu hình đủ và kiểm tra staging. Mặc định tắt.
+   - `AUTO_ORDERS_ENABLED=true` là mặc định; đặt `false` khi cần tạm dừng bắt đơn.
+   - `FB_APP_SECRET` bật xác minh chữ ký webhook Meta. Bộ bắt đơn vẫn có thể xử lý tin đã lưu trong Supabase khi chưa cấu hình khóa này.
    - Giữ các biến OpenAI, Page token và Supabase hiện có.
 3. Deploy code, bật trả lời tự động trên web. Khi bật tạo đơn, webhook Facebook phải có chữ ký `X-Hub-Signature-256` hợp lệ trên raw body; payload thiếu/sai chữ ký bị từ chối trước mọi xử lý.
 4. Mở `/orders` để xem ngay toàn bộ danh sách qua các trang. Danh sách refresh mỗi 15 giây khi tab hiện, có lọc trạng thái, phân trang 50 đơn và tìm trên trang hiện tại. Chỉ khi đổi trạng thái mới nhập mã quản trị; mã bị xóa khỏi form ngay sau mỗi lần gửi và không được lưu trong browser.

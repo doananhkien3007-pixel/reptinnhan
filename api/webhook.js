@@ -9,6 +9,7 @@ import { getAdReferral } from '../server/ad-referral.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
 import { syncFacebookProfile } from '../server/facebook-profile.js';
 import { ordersEnabled, readCheckout, readOrderEvent, commitCheckout } from '../server/orders.js';
+import { hasExplicitPurchaseIntent } from '../server/order-checkout.js';
 import { readWebhookBody } from '../server/webhook-body.js';
 export const config = { api: { bodyParser: false } };
 import {
@@ -313,22 +314,28 @@ async function waitBetweenReplies(min = 800, max = 1800) {
   if (delay) await sleep(delay);
 }
 
+async function analyzeCustomerTurn(conversation, receivedText, turn, context) {
+  const enabled = ordersEnabled();
+  const cached = enabled ? await readOrderEvent(turn.key) : null;
+  let checkout = enabled && !cached ? await readCheckout(conversation.id) : null;
+  if (checkout && !checkout.state?.confirmed && hasExplicitPurchaseIntent(context.history)) {
+    checkout = { ...checkout, state: { ...checkout.state, confirmed: true, recovered_from_history: true } };
+  }
+  let result = cached ? { intent: cached.intent || 'order', reply: cached.reply, media_ids: cached.media_ids || [] } : await generateOpenAIReply(receivedText, {
+    ...context, checkoutEnabled: enabled, checkoutState: checkout?.state || {}
+  });
+  if (enabled && !cached) {
+    const saved = await commitCheckout({ eventKey: turn.key, checkout, extraction: result.checkout, conversation, context, text: receivedText, reply: result.reply, intent: result.intent, media_ids: result.media_ids });
+    result = { ...result, reply: saved.reply, ...(saved.handled ? { intent: 'order', media_ids: [] } : {}) };
+  }
+  return result;
+}
+
 async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context) {
   await trace.nodeStarted('ai_agent', { mode: 'contextual_ai', history_count: context.history.length });
   let plan = turn.value.plan;
   if (!plan) {
-    const enabled = ordersEnabled();
-    const cached = enabled ? await readOrderEvent(turn.key) : null;
-    const checkout = enabled && !cached ? await readCheckout(conversation.id) : null;
-    let result = cached ? { intent: cached.intent || 'order', reply: cached.reply, media_ids: cached.media_ids || [] } : await generateOpenAIReply(receivedText, {
-      ...context, checkoutEnabled: enabled, checkoutState: checkout?.state || {}
-    });
-    if (enabled && !cached) {
-      // Re-check the operator switch before persisting any order side effect.
-      if (!await readAutoReplyEnabled()) return;
-      const saved = await commitCheckout({ eventKey: turn.key, checkout, extraction: result.checkout, conversation, context, text: receivedText, reply: result.reply, intent: result.intent, media_ids: result.media_ids });
-      result = { ...result, reply: saved.reply, ...(saved.handled ? { intent: 'order', media_ids: [] } : {}) };
-    }
+    const result = await analyzeCustomerTurn(conversation, receivedText, turn, context);
     const actions = [{ type: 'text', text: result.reply }];
     for (const id of result.media_ids) {
       const media = context.media.find(item => String(item.facebook_attachment_id).trim() === id);
@@ -361,6 +368,22 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
   await trace.nodeStarted('completed');
   await trace.nodeCompleted('completed');
   await trace.complete({ intent: plan.intent, product_id: context.product?.id || null });
+}
+
+async function captureOrderSilently(conversation, receivedText, trace, turn, context) {
+  await trace.nodeStarted('ai_agent', { mode: 'order_capture', history_count: context.history.length });
+  const result = await analyzeCustomerTurn(conversation, receivedText, turn, context);
+  await trace.nodeCompleted('ai_agent', { intent: result.intent, outbound: false });
+  await trace.edgeTransfer('ai_agent', 'business_logic');
+  await trace.nodeStarted('business_logic');
+  await trace.nodeCompleted('business_logic', { intent: result.intent, order_capture: true });
+  await trace.edgeTransfer('business_logic', 'send_messenger', { skipped: true });
+  await trace.nodeStarted('send_messenger', { skipped: true });
+  await trace.nodeCompleted('send_messenger', { skipped: true });
+  await trace.edgeTransfer('send_messenger', 'completed');
+  await trace.nodeStarted('completed');
+  await trace.nodeCompleted('completed');
+  await trace.complete({ intent: result.intent, product_id: context.product?.id || null, outbound: false });
 }
 
 async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
@@ -413,7 +436,8 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
       if (global.messages.length > 200) global.messages.shift();
       addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
     }
-    const context = autoReplyEnabled ? await getReplyContext(conversation, receivedText) : null;
+    const captureOrders = ordersEnabled();
+    const context = autoReplyEnabled || captureOrders ? await getReplyContext(conversation, receivedText) : null;
     await trace.patch({ product_id: context?.product?.id || null, product_name: context?.product?.name || null });
     await trace.nodeCompleted(stage, { product_id: context?.product?.id || null });
     await trace.edgeTransfer('find_product', 'check_auto_reply');
@@ -426,6 +450,11 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
       // Report send failures at the actual active node in the wrapper below.
       const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
       await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context);
+    } else if (captureOrders) {
+      await trace.edgeTransfer('check_auto_reply', 'ai_agent', { order_capture: true });
+      stage = 'ai_agent';
+      const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
+      await captureOrderSilently(conversation, receivedText, trackedTrace, turn, context);
     } else {
       for (const [previous, node] of [['check_auto_reply', 'ai_agent'], ['ai_agent', 'business_logic'], ['business_logic', 'send_messenger'], ['send_messenger', 'completed']]) {
         await trace.edgeTransfer(previous, node, { skipped: true });
@@ -447,7 +476,9 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     try {
       const managementAction = ['preview_reply', 'toggle_auto_reply', 'set_system_prompt'].includes(req.query.action);
-      await readWebhookBody(req, ordersEnabled() && !managementAction);
+      // Verify whenever the Meta App Secret is configured. Order capture itself
+      // consumes the message after it has been persisted and does not require it.
+      await readWebhookBody(req, Boolean(process.env.FB_APP_SECRET) && !managementAction);
     } catch {
       return res.status(400).send('Invalid webhook payload or signature');
     }
