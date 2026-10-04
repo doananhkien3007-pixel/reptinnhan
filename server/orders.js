@@ -46,7 +46,9 @@ export function authorizeOrders(req, res) {
 }
 
 export async function handleOrders(req, res) {
-  if (!authorizeOrders(req, res)) return;
+  // Viewing is public; mutations still require the administrator credential.
+  res.setHeader('Cache-Control', 'no-store');
+  if (!(req.method === 'GET' && req.query.action === 'orders_list') && !authorizeOrders(req, res)) return;
   const client = requireSupabase();
   if (req.method === 'GET' && req.query.action === 'orders_list') {
     const limit = 50;

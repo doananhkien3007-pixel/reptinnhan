@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { authorizeOrders } from '../server/orders.js';
 import { readWebhookBody } from '../server/webhook-body.js';
-test('orders API không công khai dữ liệu, yêu cầu token quản trị đủ mạnh',()=>{
+test('đổi trạng thái đơn yêu cầu token quản trị đủ mạnh',()=>{
   const original=process.env.ORDERS_ADMIN_TOKEN;
   const res={setHeader(k,v){this[k]=v;},status(s){this.code=s;return this;},json(v){this.body=v;return this;}};
   try {

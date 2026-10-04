@@ -20,11 +20,11 @@ Khách chốt mua → AI trích thông tin có bằng chứng từ tin khách �
 1. Schema `sql/order_management.sql` đã áp dụng vào Supabase project `chatbot` (`dnpigfdoyywvahnxuoei`) bằng migration `order_management`. Với database khác, áp dụng script một lần qua migration trước khi bật.
 2. Cấu hình server (không đưa vào frontend, không gửi secret trong chat):
    - `FB_APP_SECRET`: App Secret của Meta app nhận webhook (khác Page access token).
-   - `ORDERS_ADMIN_TOKEN`: mã ngẫu nhiên ít nhất 24 ký tự, chỉ chia sẻ với người quản lý đơn qua kênh riêng.
+   - `ORDERS_ADMIN_TOKEN`: mã ngẫu nhiên ít nhất 24 ký tự, chỉ dùng khi đổi trạng thái đơn. Việc xem danh sách không yêu cầu mã.
    - `AUTO_ORDERS_ENABLED=true` sau khi cấu hình đủ và kiểm tra staging. Mặc định tắt.
    - Giữ các biến OpenAI, Page token và Supabase hiện có.
 3. Deploy code, bật trả lời tự động trên web. Khi bật tạo đơn, webhook Facebook phải có chữ ký `X-Hub-Signature-256` hợp lệ trên raw body; payload thiếu/sai chữ ký bị từ chối trước mọi xử lý.
-4. Mở `/orders`, nhập mã quản trị. Token chỉ ở bộ nhớ tab; reload/khóa trang sẽ bỏ mã. Danh sách refresh mỗi 15 giây khi tab hiện, có lọc trạng thái, phân trang 50 đơn và tìm trên trang hiện tại.
+4. Mở `/orders` để xem ngay toàn bộ danh sách qua các trang. Danh sách refresh mỗi 15 giây khi tab hiện, có lọc trạng thái, phân trang 50 đơn và tìm trên trang hiện tại. Chỉ khi đổi trạng thái mới nhập mã quản trị; mã bị xóa khỏi form ngay sau mỗi lần gửi và không được lưu trong browser.
 5. Chạy một hội thoại kiểm tra bằng tài khoản thử trước khi nhận đơn thật. Hiện chưa chạy model thật hoặc webhook live cho chức năng mới do local không có thông tin xác thực.
 
 API vẫn nằm trong `/api/products?action=orders_list|orders_status`, không thêm Serverless Function.
@@ -33,7 +33,7 @@ API vẫn nằm trong `/api/products?action=orders_list|orders_status`, không t
 
 Ba bảng mới bật RLS, thu hồi quyền `anon`/`authenticated`, chỉ `service_role` đọc/ghi; RPC là SECURITY INVOKER, PUBLIC không được execute. Supabase Advisor có thông báo INFO “RLS enabled, no policy” là chủ đích với bảng server-only ([giải thích](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)).
 
-API quản lý đơn yêu cầu Bearer token, `Cache-Control: no-store`, cập nhật trạng thái kiểm tra timestamp chống ghi đè dữ liệu cũ. Đây là lớp khóa riêng cho quản lý đơn, **không thay thế đăng nhập/phân quyền toàn ứng dụng**. Các API hộp thư/cấu hình hiện có chưa có đăng nhập; nên bảo vệ toàn dashboard trước khi công khai dữ liệu khách. Mã quản trị dùng chung chưa có tài khoản/nhật ký từng nhân viên; muốn đa nhân viên cần bổ sung auth/RBAC.
+API xem danh sách không yêu cầu Bearer token theo yêu cầu mở toàn bộ và luôn trả `Cache-Control: no-store`. API đổi trạng thái vẫn yêu cầu mã quản trị và kiểm tra timestamp chống ghi đè dữ liệu cũ. Các bảng Supabase vẫn không cấp quyền trực tiếp cho `anon`/`authenticated`; secret key chỉ nằm ở server. Đây **không phải đăng nhập/phân quyền toàn ứng dụng**: bất kỳ ai truy cập được `/orders` hoặc endpoint GET đều xem được tên, SĐT và địa chỉ khách. Mã quản trị dùng chung chưa có tài khoản/nhật ký từng nhân viên; muốn giới hạn người xem hoặc đa nhân viên cần bổ sung auth/RBAC.
 
 Thời gian lưu `order_events` và bộ nhớ checkout chưa có TTL; không dọn tùy ý vì sẽ giảm khả năng chống trùng. Cần chính sách lưu giữ phù hợp. Việc gửi tin Messenger không thể bảo đảm exactly-once nếu Facebook đã nhận nhưng mạng đứt trước checkpoint; phần ghi đơn vẫn được chống trùng ở DB.
 
