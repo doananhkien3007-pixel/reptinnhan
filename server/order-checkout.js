@@ -53,10 +53,10 @@ export function normalizePhone(value) {
 function grounded(item, texts, phone = false) {
   if (!item?.value?.trim() || !item.source?.trim()) return null;
   const source = normalized(item.source);
-  if (!source || !texts.some(text => normalized(text).includes(source))) return null;
+  if (!source || !texts.some(text => (' ' + normalized(text) + ' ').includes(' ' + source + ' '))) return null;
   const value = item.value.trim();
   if (phone) return item.source.replace(/\D/g, '').includes(value.replace(/\D/g, '')) ? value : null;
-  return normalized(item.source).includes(normalized(value)) ? value : null;
+  return (' ' + normalized(item.source) + ' ').includes(' ' + normalized(value) + ' ') ? value : null;
 }
 
 export function missingOrderFields(state) {
@@ -85,15 +85,18 @@ export function advanceCheckout({ previous = {}, extraction, conversation, conte
   let action = source && normalized(text).includes(source) ? extraction.action : 'none';
   // Deterministic veto for common negation/conditional purchase statements.
   if (['confirm', 'new_order'].includes(action) && /\b(chua|khong|dung|khoi|neu|gia su|de suy nghi)\b/.test(normalized(text))) action = 'none';
+  if (action === 'new_order' && previous.order_id && !/\b(them|don moi|don rieng|mua nua)\b/.test(normalized(text))) action = 'confirm';
   const fresh = action === 'new_order' && previous.order_id || previous.cancelled && action === 'confirm';
   const state = fresh ? {} : structuredClone(previous);
   let reply = null;
   if (state.order_id) {
+    let reviewRequest = null;
     if (['cancel', 'amend'].includes(action)) {
       state.review_request = text.slice(0, 1000);
+      reviewRequest = state.review_request;
       reply = `Em đã ghi nhận yêu cầu sửa/hủy cho đơn ${state.order_code}. Shop sẽ kiểm tra trước khi thay đổi đơn chị nhé.`;
     } else if (action === 'confirm') reply = `Dạ đơn ${state.order_code} của chị đã được ghi nhận, em không tạo thêm đơn trùng ạ.`;
-    return { state, reply, order: null, review_request: state.review_request || null };
+    return { state, reply, order: null, review_request: reviewRequest };
   }
   if (action === 'cancel') {
     return { state: { cancelled: true }, reply: 'Dạ em đã dừng ghi đơn này, chưa tạo đơn hàng cho chị ạ.', order: null };
@@ -101,7 +104,7 @@ export function advanceCheckout({ previous = {}, extraction, conversation, conte
   // Do not import a prior order's personal data into an explicitly new order.
   const sources = fresh ? [text] : texts;
   for (const key of ['customer_name', 'phone', 'size', 'color']) {
-    const value = grounded(extraction[key], sources, key === 'phone');
+    const value = grounded(extraction[key], state[key] ? [text] : sources, key === 'phone');
     if (value) {
       state[key] = key === 'phone' ? normalizePhone(value) : value.slice(0, key === 'size' ? 40 : 150);
       if (key === 'customer_name') state.name_source = 'customer';
@@ -111,21 +114,29 @@ export function advanceCheckout({ previous = {}, extraction, conversation, conte
     state.customer_name = conversation.facebook_name.trim().slice(0, 150);
     state.name_source = 'facebook';
   }
-  const address = grounded(extraction.address, sources);
+  const address = grounded(extraction.address, state.address ? [text] : sources);
   if (address) {
     const old = state.address;
     state.address = old && !state.address_complete && !normalized(address).includes(normalized(old))
       ? `${old}, ${address}`.slice(0, 600) : address;
     state.address_complete = extraction.address_complete && state.address.length >= 12 && normalized(state.address).split(' ').length >= 4;
   }
-  const quantity = grounded(extraction.quantity, sources);
-  if (quantity && /^\d{1,2}$/.test(quantity) && Number(quantity) >= 1) state.quantity = Number(quantity);
+  const quantity = grounded(extraction.quantity, state.quantity ? [text] : sources);
+  if (quantity) {
+    const quantityNumber = Number(quantity) || ({ mot: 1, hai: 2, ba: 3, bon: 4, nam: 5, sau: 6, bay: 7, tam: 8, chin: 9, muoi: 10 })[normalized(quantity)];
+    if (Number.isInteger(quantityNumber) && quantityNumber >= 1 && quantityNumber <= 99) state.quantity = quantityNumber;
+    else state.needs_review = true;
+  }
   if (context.product) {
     const p = context.product;
     if (state.product && state.product.id !== p.id) { state.size = grounded(extraction.size, [text]); state.color = grounded(extraction.color, [text]); }
     state.product = { id: p.id, name: p.name, sku: p.sku, price: Number(p.price || 0) };
-  } else if (state.confirmed) {
+  } else {
     // An ambiguous/deleted product must be resolved before finalizing.
+    if (state.product?.id) {
+      state.size = grounded(extraction.size, [text]);
+      state.color = grounded(extraction.color, [text]);
+    }
     state.product = null;
   }
   if (action === 'confirm' || action === 'new_order') { state.confirmed = true; state.cancelled = false; state.checkout_id ||= newId(); }
@@ -136,10 +147,14 @@ export function advanceCheckout({ previous = {}, extraction, conversation, conte
   if (state.needs_review) return { state, reply: 'Chị đang chọn nhiều mẫu/size khác nhau. Em đã ghi nhận để shop kiểm tra đủ từng món trước khi tạo đơn, tránh thiếu sản phẩm ạ.', order: null };
   const missing = missingOrderFields(state);
   state.missing = missing;
-  if (missing.length) return { state, reply: questions[missing[0]], order: null };
+  if (missing.length) {
+    const changed = ['customer_name','phone','address','size','product','color','quantity'].some(k => JSON.stringify(previous[k]) !== JSON.stringify(state[k]));
+    const discussingOtherTopic = context.intent && context.intent !== 'order' && action === 'none' && previous.confirmed && !changed;
+    return { state, reply: discussingOtherTopic ? null : questions[missing[0]], order: null };
+  }
   const orderId = state.checkout_id;
   state.order_id = orderId;
-  state.order_code = 'DH-' + orderId.replaceAll('-', '').toUpperCase();
+  state.order_code = 'DH-' + orderId.replaceAll('-', '').slice(0, 12).toUpperCase();
   const order = {
     id: orderId, order_code: state.order_code, conversation_id: conversation.id,
     customer_name: state.customer_name, name_source: state.name_source || 'customer',

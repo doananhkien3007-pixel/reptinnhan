@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { requireSupabase } from '../server/supabase.js';
 import { listProducts } from '../server/products.js';
+import { handleOrders } from '../server/orders.js';
 
 // Facebook may need time to fetch and register a large video from Storage.
 export const maxDuration = 60;
@@ -107,6 +108,7 @@ async function saveColors(supabase, productId, variants = []) {
 
 export default async function handler(req, res) {
   try {
+    if (String(req.query.action || '').startsWith('orders_')) return await handleOrders(req, res);
     const supabase = requireSupabase();
     const action = req.query.action || 'list';
 

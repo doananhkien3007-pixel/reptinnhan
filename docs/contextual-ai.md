@@ -8,7 +8,7 @@ Webhook hiện gọi AI cho mỗi tin mới khi bật trả lời tự động, 
 - Ưu tiên tên/mã sản phẩm khách nhắc rõ; nếu chưa nhắc thì dùng sản phẩm đã gắn với hội thoại/Ads. Chỉ tự chọn khi còn đúng một sản phẩm đang bán. Nhiều mẫu chưa xác định thì hỏi lại.
 - Dùng giá, màu, chất liệu và bảng size từ database. Chưa có dữ liệu tồn kho/ưu đãi/vận chuyển thì yêu cầu AI không tự khẳng định.
 - AI trả về ý định, nội dung trả lời và danh sách media. Server xác thực schema, giới hạn 2.000 ký tự, kiểm tra ID ảnh/video thuộc sản phẩm. Chỉ gửi media với ý định xem ảnh/video.
-- Không có chức năng tạo đơn: AI chỉ ghi nhận thông tin qua hội thoại, không xác nhận đã tạo đơn.
+- Có luồng tự tạo đơn tùy chọn khi `AUTO_ORDERS_ENABLED=true`: xem [Quản lý đơn](order-management.md). Khi tắt, AI chỉ ghi nhận thông tin và không xác nhận đã tạo đơn.
 - Ảnh khách gửi hiện được nhận như thông báo có tệp; chưa có phân tích hình ảnh.
 
 ## Kiểm tra trên web
@@ -23,7 +23,7 @@ API thử: `POST /api/webhook?action=preview_reply`, body `{ "message": "chị 5
 
 ## Cấu hình triển khai
 
-Giữ các biến hiện tại: `OPENAI_API_KEY`, `OPENAI_MODEL`, `PAGE_ACCESS_TOKEN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`. Không đổi model đã cấu hình. Bật công tắc Trợ lý tự động trên web sau khi kiểm tra phản hồi phù hợp. Không cần thêm migration hoặc Serverless Function.
+Giữ các biến hiện tại: `OPENAI_API_KEY`, `OPENAI_MODEL`, `PAGE_ACCESS_TOKEN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`. Không đổi model đã cấu hình. Bật công tắc Trợ lý tự động trên web sau khi kiểm tra phản hồi phù hợp. Luồng tư vấn không cần thêm migration; tính năng tự tạo đơn cần schema và cấu hình trong [Quản lý đơn](order-management.md). Không thêm Serverless Function.
 
 ## Tin trùng, lỗi và giới hạn
 

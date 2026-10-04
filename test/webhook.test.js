@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { PROMOTION_MESSAGE, SIZE_QUESTION } from '../server/product-introduction.js';
 
 test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', async (t) => {
@@ -39,6 +40,14 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
   let failTextOnce = false;
   let eventCounter = 0;
   let failAttachmentOnce = null;
+  let checkoutRow = null;
+  const orderEvents = new Map();
+  const orders = [];
+  let failOrderCommit = false;
+  let failCheckpointAfterOrder = false;
+  const emptyCheckout = () => ({ action:'none',action_source:null,address_complete:false,multiple_items:false,
+    ...Object.fromEntries(['customer_name','phone','address','size','color','quantity'].map(k=>[k,{value:null,source:null}])) });
+  const field = value => ({value,source:value});
   const originalFetch = globalThis.fetch;
   const json = (data, status = 200) => new Response(JSON.stringify(data), {
     status,
@@ -71,11 +80,26 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
 
     const table = url.pathname.split('/').at(-1);
     const single = new Headers(init.headers).get('accept')?.includes('vnd.pgrst.object');
+    if (table === 'order_checkouts') return json(checkoutRow);
+    if (table === 'order_events') return json(orderEvents.has(url.searchParams.get('event_key')?.slice(3)) ? {result:orderEvents.get(url.searchParams.get('event_key').slice(3))} : null);
+    if (table === 'commit_order_checkout') {
+      if (failOrderCommit) return json({message:'write failed'},500);
+      const p = JSON.parse(init.body);
+      if (orderEvents.has(p.p_event_key)) return json(orderEvents.get(p.p_event_key));
+      if ((checkoutRow?.revision || 0) !== p.p_revision) return json({message:'revision conflict'},409);
+      if (p.p_order) orders.push(p.p_order);
+      checkoutRow={state:p.p_state,revision:p.p_revision+1};
+      orderEvents.set(p.p_event_key,p.p_result);
+      return json(p.p_result);
+    }
     if (table === 'app_settings') {
       const key = url.searchParams.get('key')?.slice(3);
       const stamp = url.searchParams.get('updated_at')?.slice(3);
       if (method === 'POST') {
         const row = JSON.parse(init.body);
+        if (failCheckpointAfterOrder && row.value?.plan && orders.length) {
+          failCheckpointAfterOrder=false; return json({message:'checkpoint unavailable'},500);
+        }
         if (settings.has(row.key) && !new Headers(init.headers).get('prefer')?.includes('resolution=merge-duplicates')) {
           return json({ code: '23505', message: 'duplicate key' }, 409);
         }
@@ -163,6 +187,10 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       status(code) { this.statusCode = code; return this; },
       send(body) { this.body = body; return this; }
     };
+    if (process.env.AUTO_ORDERS_ENABLED === 'true') {
+      req.body = Buffer.from(JSON.stringify(req.body));
+      req.headers = {'x-hub-signature-256':'sha256='+createHmac('sha256',process.env.FB_APP_SECRET).update(req.body).digest('hex')};
+    }
     await handler(req, res);
     assert.equal(res.statusCode, expectedStatus);
   };
@@ -184,6 +212,9 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     responseStatus = 'completed';
     aiResult = { intent: 'other', reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
     failAttachmentOnce = null;
+    process.env.AUTO_ORDERS_ENABLED = 'false';
+    process.env.FB_APP_SECRET = 'test-fb-app-secret';
+    checkoutRow = null; orders.length = 0; orderEvents.clear(); failOrderCommit = false; failCheckpointAfterOrder = false;
     settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } });
     await run();
   });
@@ -357,6 +388,36 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       assert.equal(result.reply, 'Dạ chị phù hợp size M theo bảng ạ.');
       await deliver('chị 53kg');
       assert.equal(sentToMessenger[0].message.text, result.reply);
+    });
+    await scenario('chốt từng lượt đủ dữ liệu mới tạo đơn và không hỏi lại thông tin đã có',async()=>{
+      process.env.AUTO_ORDERS_ENABLED='true'; conversation.facebook_name='Nguyễn Mai';
+      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),action:'confirm',action_source:'chốt',size:field('M')}};
+      await deliver('chốt size M');assert.equal(orders.length,0);assert.match(sentToMessenger.at(-1).message.text,/số điện thoại/);
+      aiResult.checkout={...emptyCheckout(),phone:field('0901234567')};
+      await deliver('0901234567');assert.equal(orders.length,0);assert.match(sentToMessenger.at(-1).message.text,/địa chỉ/);
+      const address='12 Nguyễn Trãi, phường Bến Thành, TP Hồ Chí Minh';
+      aiResult.checkout={...emptyCheckout(),address:field(address),address_complete:true};
+      const event={text:address,mid:'order-final'};
+      await deliver(event);assert.equal(orders.length,1);assert.match(sentToMessenger.at(-1).message.text,/đã tạo đơn/);
+      assert.equal(orders[0].customer_name,'Nguyễn Mai');assert.equal(orders[0].size,'M');
+      await deliver(event);assert.equal(orders.length,1);assert.equal(sentToMessenger.length,3);
+      assert.ok(aiRequests[2].instructions.includes('0901234567'));
+    });
+    await scenario('lỗi ghi database không báo đã tạo; retry checkpoint/gửi tin không tạo đơn trùng',async()=>{
+      process.env.AUTO_ORDERS_ENABLED='true'; conversation.facebook_name='Nguyễn Mai';
+      const address='12 Nguyễn Trãi, phường Bến Thành, TP Hồ Chí Minh';
+      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),action:'confirm',action_source:'chốt',size:field('M'),phone:field('0901234567'),address:field(address),address_complete:true}};
+      const event={text:'chốt size M 0901234567 '+address,mid:'atomic-order'};
+      failOrderCommit=true;await deliver(event,{},503);assert.equal(orders.length,0);assert.equal(sentToMessenger.length,0);
+      failOrderCommit=false;failCheckpointAfterOrder=true;await deliver(event,{},503);assert.equal(orders.length,1);assert.equal(sentToMessenger.length,0);
+      const requestCount=aiRequests.length;
+      failTextOnce=true;await deliver(event,{},503);assert.equal(orders.length,1);assert.equal(aiRequests.length,requestCount);
+      await deliver(event);assert.equal(orders.length,1);assert.equal(sentToMessenger.length,1);assert.match(sentToMessenger[0].message.text,/đã tạo đơn/);
+    });
+    await scenario('preview khi bật đơn vẫn không ghi đơn hoặc gửi Messenger',async()=>{
+      process.env.AUTO_ORDERS_ENABLED='true';
+      await action('POST','preview_reply',{message:'chốt size M 0901234567',sender_id:'customer'});
+      assert.equal(orders.length,0);assert.equal(orderEvents.size,0);assert.equal(sentToMessenger.length,0);
     });
   } finally {
     globalThis.fetch = originalFetch;

@@ -18,7 +18,7 @@
   window.appIcon = (name) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || paths.chat) + '</svg>';
   window.paintIcons = (root = document) => root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = appIcon(el.dataset.icon); });
   const page = document.body.dataset.page || 'inbox';
-  const nav = [['inbox', '/', 'chat', 'Hộp thư'], ['products', '/products', 'box', 'Sản phẩm'], ['ads', '/ads', 'ads', 'Quảng cáo']];
+  const nav = [['inbox', '/', 'chat', 'Hộp thư'], ['products', '/products', 'box', 'Sản phẩm'], ['orders', '/orders', 'log', 'Quản lý đơn'], ['ads', '/ads', 'ads', 'Quảng cáo']];
   document.body.insertAdjacentHTML('afterbegin', `<aside class="app-sidebar" id="app-sidebar">
     <a class="app-brand" href="/" aria-label="LeafChat — Trang chủ"><span class="brand-symbol">${appIcon('chat')}</span>LeafChat<span class="brand-period">.</span></a>
     <div class="workspace-label"><span class="workspace-avatar">W</span><div><strong>Workspace của bạn</strong><small>Facebook Messenger</small></div><span class="workspace-dot"></span></div>

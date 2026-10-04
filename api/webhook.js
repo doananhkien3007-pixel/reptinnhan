@@ -8,6 +8,9 @@ import { beginCustomerTurn, checkpointTurn, endCustomerTurn } from '../server/cu
 import { getAdReferral } from '../server/ad-referral.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
 import { syncFacebookProfile } from '../server/facebook-profile.js';
+import { ordersEnabled, readCheckout, readOrderEvent, commitCheckout } from '../server/orders.js';
+import { readWebhookBody } from '../server/webhook-body.js';
+export const config = { api: { bodyParser: false } };
 import {
   getOrCreateConversation,
   saveConversationMessage,
@@ -314,7 +317,18 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
   await trace.nodeStarted('ai_agent', { mode: 'contextual_ai', history_count: context.history.length });
   let plan = turn.value.plan;
   if (!plan) {
-    const result = await generateOpenAIReply(receivedText, context);
+    const enabled = ordersEnabled();
+    const cached = enabled ? await readOrderEvent(turn.key) : null;
+    const checkout = enabled && !cached ? await readCheckout(conversation.id) : null;
+    let result = cached ? { intent: cached.intent || 'order', reply: cached.reply, media_ids: cached.media_ids || [] } : await generateOpenAIReply(receivedText, {
+      ...context, checkoutEnabled: enabled, checkoutState: checkout?.state || {}
+    });
+    if (enabled && !cached) {
+      // Re-check the operator switch before persisting any order side effect.
+      if (!await readAutoReplyEnabled()) return;
+      const saved = await commitCheckout({ eventKey: turn.key, checkout, extraction: result.checkout, conversation, context, text: receivedText, reply: result.reply, intent: result.intent, media_ids: result.media_ids });
+      result = { ...result, reply: saved.reply, ...(saved.handled ? { intent: 'order', media_ids: [] } : {}) };
+    }
     const actions = [{ type: 'text', text: result.reply }];
     for (const id of result.media_ids) {
       const media = context.media.find(item => String(item.facebook_attachment_id).trim() === id);
@@ -430,6 +444,14 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
 }
 
 export default async function handler(req, res) {
+  if (req.method === 'POST') {
+    try {
+      const managementAction = ['preview_reply', 'toggle_auto_reply', 'set_system_prompt'].includes(req.query.action);
+      await readWebhookBody(req, ordersEnabled() && !managementAction);
+    } catch {
+      return res.status(400).send('Invalid webhook payload or signature');
+    }
+  }
   const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || process.env.VERIFY_TOKEN || 'my_secure_verify_token';
   await loadSettings();
 
