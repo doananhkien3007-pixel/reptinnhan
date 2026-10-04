@@ -24,7 +24,7 @@ Khách chốt mua → AI trích thông tin có bằng chứng từ tin khách �
    - `AUTO_ORDERS_ENABLED=true` là mặc định; đặt `false` khi cần tạm dừng bắt đơn.
    - `FB_APP_SECRET` bật xác minh chữ ký webhook Meta. Bộ bắt đơn vẫn có thể xử lý tin đã lưu trong Supabase khi chưa cấu hình khóa này.
    - Giữ các biến OpenAI, Page token và Supabase hiện có.
-3. Deploy code, bật trả lời tự động trên web. Khi bật tạo đơn, webhook Facebook phải có chữ ký `X-Hub-Signature-256` hợp lệ trên raw body; payload thiếu/sai chữ ký bị từ chối trước mọi xử lý.
+3. Deploy code. Bắt đơn vẫn chạy khi tắt trả lời tự động; lúc đó hệ thống chỉ cập nhật checkout/đơn và không nhắn khách. Khi có `FB_APP_SECRET`, webhook Facebook phải có chữ ký `X-Hub-Signature-256` hợp lệ trên raw body; payload thiếu/sai chữ ký bị từ chối trước mọi xử lý.
 4. Mở `/orders` để xem ngay toàn bộ danh sách qua các trang. Danh sách refresh mỗi 15 giây khi tab hiện, có lọc trạng thái, phân trang 50 đơn và tìm trên trang hiện tại. Chỉ khi đổi trạng thái mới nhập mã quản trị; mã bị xóa khỏi form ngay sau mỗi lần gửi và không được lưu trong browser.
 5. Chạy một hội thoại kiểm tra bằng tài khoản thử trước khi nhận đơn thật. Hiện chưa chạy model thật hoặc webhook live cho chức năng mới do local không có thông tin xác thực.
 

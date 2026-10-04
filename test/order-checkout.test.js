@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { advanceCheckout, normalizePhone, validateCheckout } from '../server/order-checkout.js';
+import { advanceCheckout, hasExplicitPurchaseIntent, normalizePhone, validateCheckout } from '../server/order-checkout.js';
 
 const empty = () => ({ action:'none',action_source:null, address_complete:false,multiple_items:false,
   ...Object.fromEntries(['customer_name','phone','address','size','color','quantity'].map(k=>[k,{value:null,source:null}])) });
@@ -86,4 +86,18 @@ test('đang thiếu dữ liệu nhưng khách hỏi vấn đề khác thì khôn
   const result=run(empty(),'vải có co giãn không',first.state,{context:{...context,intent:'product_info'}});
   assert.equal(result.order,null);assert.equal(result.reply,null);
   assert.ok(result.state.missing.includes('phone'));
+});
+test('nhận diện ý định mua gần nhất trong lịch sử và tôn trọng lời hủy sau đó',()=>{
+  assert.equal(hasExplicitPurchaseIntent([{direction:'inbound',text:'Mình mua 1 cái váy'}]),true);
+  assert.equal(hasExplicitPurchaseIntent([
+    {direction:'inbound',text:'chốt màu đỏ'},
+    {direction:'inbound',text:'thôi không mua nữa'}
+  ]),false);
+  assert.equal(hasExplicitPurchaseIntent([{direction:'inbound',text:'nếu mua thì bao nhiêu tiền'}]),false);
+});
+test('checkout khôi phục từ lịch sử được cấp ID ổn định để tiếp tục thu thập',()=>{
+  const result=run({...empty(),phone:field('0901234567')},'0901234567',{confirmed:true,recovered_from_history:true});
+  assert.equal(result.state.checkout_id,'12345678-1234-4234-8234-123456789012');
+  assert.equal(result.state.phone,'0901234567');
+  assert.equal(result.order,null);
 });

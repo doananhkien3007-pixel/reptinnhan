@@ -187,7 +187,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       status(code) { this.statusCode = code; return this; },
       send(body) { this.body = body; return this; }
     };
-    if (process.env.AUTO_ORDERS_ENABLED === 'true') {
+    if (process.env.FB_APP_SECRET) {
       req.body = Buffer.from(JSON.stringify(req.body));
       req.headers = {'x-hub-signature-256':'sha256='+createHmac('sha256',process.env.FB_APP_SECRET).update(req.body).digest('hex')};
     }
@@ -344,6 +344,31 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       assert.equal(sentToMessenger.length, 0);
       assert.equal(aiRequests.length, 0);
       assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+    });
+    await scenario('tắt trả lời vẫn âm thầm bắt thông tin đơn từ tin đã lưu', async () => {
+      process.env.AUTO_ORDERS_ENABLED='true';
+      conversation.facebook_name='Nguyễn Mai';
+      settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: false } });
+      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),action:'confirm',action_source:'chốt',size:field('M')}};
+      await deliver('chốt size M');
+      assert.equal(aiRequests.length,1);
+      assert.equal(sentToMessenger.length,0);
+      assert.equal(checkoutRow.state.confirmed,true);
+      assert.equal(checkoutRow.state.size,'M');
+      assert.ok(checkoutRow.state.missing.includes('phone'));
+    });
+    await scenario('khôi phục ý định mua từ lịch sử Supabase khi checkout chưa tồn tại', async () => {
+      process.env.AUTO_ORDERS_ENABLED='true';
+      delete process.env.FB_APP_SECRET;
+      conversation.facebook_name='Nguyễn Mai';
+      settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: false } });
+      storedMessages.push({sender_id:'customer',conversation_id:11,direction:'inbound',text:'Mình mua 1 cái váy'});
+      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),phone:field('0901234567')}};
+      await deliver('0901234567');
+      assert.equal(sentToMessenger.length,0);
+      assert.equal(checkoutRow.state.confirmed,true);
+      assert.equal(checkoutRow.state.recovered_from_history,true);
+      assert.equal(checkoutRow.state.phone,'0901234567');
     });
     await scenario('xem trước dùng ngữ cảnh nhưng không gửi tin hoặc đổi sản phẩm khách', async () => {
       multipleProducts = true;
