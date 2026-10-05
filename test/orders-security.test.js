@@ -27,3 +27,8 @@ test('webhook tạo đơn chỉ chấp nhận chữ ký Facebook trên raw bytes
     delete process.env.FB_APP_SECRET;await assert.rejects(readWebhookBody({body:raw,headers:req.headers},true),/FB_APP_SECRET/);
   }finally{if(original===undefined)delete process.env.FB_APP_SECRET;else process.env.FB_APP_SECRET=original;}
 });
+test('POST quản trị không có body được đọc thành object rỗng',async()=>{
+  const req=Readable.from([]);req.headers={};
+  await readWebhookBody(req,false);
+  assert.deepEqual(req.body,{});
+});

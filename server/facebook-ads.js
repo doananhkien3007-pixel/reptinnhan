@@ -148,7 +148,10 @@ export async function fetchFacebookAds({ accountId, accessToken, version = DEFAU
       const message = result.error?.message || `HTTP ${response.status}`;
       throw new Error(`Facebook Marketing API từ chối yêu cầu: ${message}`);
     }
-    ads.push(...(Array.isArray(result.data) ? result.data.map(normalizeFacebookAd) : []));
+    const activeAds = (Array.isArray(result.data) ? result.data : [])
+      .map(normalizeFacebookAd)
+      .filter((ad) => ad.effective_status === 'ACTIVE');
+    ads.push(...activeAds);
     after = result.paging?.cursors?.after || null;
     if (!after || !result.paging?.next) break;
   }

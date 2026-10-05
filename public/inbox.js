@@ -108,7 +108,14 @@ function renderDetail() {
 
 async function api(action, options) {
   const res = await fetch('/api/webhook?action=' + action, options);
-  const data = await res.json();
+  const raw = await res.text();
+  let data;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    if (!res.ok) throw new Error(raw || 'Yêu cầu chưa thành công. Vui lòng thử lại.');
+    throw new Error('Máy chủ trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
+  }
   if (!res.ok) throw new Error(data?.error || 'Yêu cầu chưa thành công. Vui lòng thử lại.');
   return data;
 }

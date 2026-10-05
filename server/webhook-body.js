@@ -22,5 +22,11 @@ export async function readWebhookBody(req, verifySignature) {
     const expected = createHmac('sha256', secret).update(raw).digest();
     if (!timingSafeEqual(actual, expected)) throw new Error('Chữ ký webhook không hợp lệ.');
   }
-  if (raw) req.body = JSON.parse(raw.toString('utf8'));
+  if (raw) {
+    const text = raw.toString('utf8').trim();
+    // Management actions such as toggling auto-reply legitimately send an
+    // empty POST body. Treat that as an empty object instead of parsing an
+    // empty string as JSON.
+    req.body = text ? JSON.parse(text) : {};
+  }
 }

@@ -11,6 +11,8 @@ test('giao diện ads có đồng bộ, ảnh creative, bộ lọc và thao tác
   assert.match(html, /ad\.cover_url/);
   assert.match(html, /Ads ID/);
   assert.match(html, /mapping-filter/);
+  assert.match(html, /ad\.effective_status === 'ACTIVE'/);
+  assert.doesNotMatch(html, /id="status-filter"|Đã tạm dừng/);
   assert.doesNotMatch(html, /FB_MARKETING_ACCESS_TOKEN|access_token=/);
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script);

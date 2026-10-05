@@ -65,7 +65,8 @@ test('Marketing API dùng Bearer token, phân trang và chuẩn hoá creative', 
     accountId: '123', accessToken: 'secret-token', version: 'v26.0', fetchImpl
   });
   assert.equal(result.account_id, 'act_123');
-  assert.equal(result.ads.length, 2);
+  assert.equal(result.ads.length, 1);
+  assert.equal(result.ads[0].effective_status, 'ACTIVE');
   assert.equal(result.ads[0].cover_url, 'https://img.example/vay.jpg');
   assert.equal(result.ads[0].creative_id, 'c1');
   assert.equal(calls.length, 2);

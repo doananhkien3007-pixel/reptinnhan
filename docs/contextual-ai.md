@@ -8,7 +8,7 @@ Webhook hiện gọi AI cho mỗi tin mới khi bật trả lời tự động, 
 - Ưu tiên tên/mã sản phẩm khách nhắc rõ; nếu chưa nhắc thì dùng sản phẩm đã gắn với hội thoại/Ads. Chỉ tự chọn khi còn đúng một sản phẩm đang bán. Nhiều mẫu chưa xác định thì hỏi lại.
 - Dùng giá, màu, chất liệu và bảng size từ database. Chưa có dữ liệu tồn kho/ưu đãi/vận chuyển thì yêu cầu AI không tự khẳng định.
 - AI trả về ý định, nội dung trả lời và danh sách media. Server xác thực schema, giới hạn 2.000 ký tự, kiểm tra ID ảnh/video thuộc sản phẩm. Chỉ gửi media với ý định xem ảnh/video.
-- Có luồng tự tạo đơn tùy chọn khi `AUTO_ORDERS_ENABLED=true`: xem [Quản lý đơn](order-management.md). Khi tắt, AI chỉ ghi nhận thông tin và không xác nhận đã tạo đơn.
+- Luồng tự tạo đơn mặc định xử lý cả khi tắt gửi trả lời: AI vẫn gom dữ liệu đã lưu trong Supabase nhưng không nhắn khách. Đặt `AUTO_ORDERS_ENABLED=false` để tạm dừng hoàn toàn; xem [Quản lý đơn](order-management.md).
 - Ảnh khách gửi hiện được nhận như thông báo có tệp; chưa có phân tích hình ảnh.
 
 ## Kiểm tra trên web
