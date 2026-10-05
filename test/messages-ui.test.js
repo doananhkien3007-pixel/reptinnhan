@@ -5,12 +5,18 @@ import vm from 'node:vm';
 
 test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội thoại', async () => {
   const elements = new Map();
-  const element = () => ({
-    innerHTML: '', textContent: '', value: '', className: '', disabled: false,
-    dataset: {}, style: {}, scrollTop: 0, scrollHeight: 0, clientHeight: 0,
-    addEventListener() {}, setAttribute() {}, querySelectorAll() { return []; },
-    classList: { toggle() {}, add() {}, remove() {} }
-  });
+  const element = () => {
+    const listeners = {};
+    return {
+      innerHTML: '', textContent: '', value: '', className: '', disabled: false,
+      dataset: {}, style: {}, scrollTop: 0, scrollHeight: 0, clientHeight: 0,
+      listeners,
+      addEventListener(type, listener) { listeners[type] = listener; },
+      setAttribute() {}, querySelectorAll() { return []; },
+      classList: { toggle() {}, add() {}, remove() {} }
+    };
+  };
+  const fetchCalls = [];
   const messages = [
     { senderId: 'customer-1', customerName: 'Nguyễn Lan', profilePic: 'https://img.example/lan.jpg', adId: 'ad-10', direction: 'outbound', text: 'Chào chị', time: '10:00:00' },
     { senderId: 'customer-1', adId: 'ad-10', direction: 'inbound', text: 'Còn màu đen không?', time: '10:01:00' },
@@ -23,11 +29,13 @@ test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội
       querySelectorAll() { return []; }, addEventListener() {}
     },
     appIcon: () => '',
-    fetch: async (url) => {
+    fetch: async (url, options) => {
+      fetchCalls.push({ url: String(url), options });
       if (String(url).includes('get_messages')) return Response.json(messages);
       if (String(url).includes('get_task_logs')) return Response.json([]);
       if (String(url).includes('get_system_prompt')) return Response.json({ prompt: '' });
       if (String(url).includes('auto_reply_status')) return Response.json({ enabled: true });
+      if (String(url).includes('toggle_auto_reply')) return Response.json({ enabled: false });
       return Response.json({});
     },
     setInterval() { return 1; }
@@ -69,4 +77,11 @@ test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội
   assert.equal(elements.get('chat-box').scrollTop, 42);
   assert.equal(elements.get('chat-box').innerHTML, unchanged);
   assert.equal(context.escapeHtml('<img onerror="alert(1)">'), '&lt;img onerror=&quot;alert(1)&quot;&gt;');
+
+  await elements.get('reply-toggle').listeners.click();
+  const toggleCall = fetchCalls.find(call => call.url.includes('toggle_auto_reply'));
+  assert.equal(toggleCall.options.method, 'POST');
+  assert.equal(toggleCall.options.headers['Content-Type'], 'application/json');
+  assert.equal(toggleCall.options.body, '{}');
+  assert.equal(elements.get('reply-status').textContent, 'Đã tạm dừng');
 });

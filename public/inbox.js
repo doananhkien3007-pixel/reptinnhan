@@ -177,7 +177,11 @@ $('reply-toggle').addEventListener('click', async () => {
   togglingReply = true;
   $('reply-toggle').disabled = true;
   try {
-    const data = await api('toggle_auto_reply', { method: 'POST' });
+    const data = await api('toggle_auto_reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    });
     if (typeof data.enabled !== 'boolean') throw new Error('Không đọc được trạng thái mới.');
     autoReplyEnabled = data.enabled;
     updateReplyControl();
