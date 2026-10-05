@@ -50,11 +50,15 @@ test('Marketing API dùng Bearer token, phân trang và chuẩn hoá creative', 
     {
       data: [{
         id: '1001', name: 'VAY-001 sale', status: 'ACTIVE', effective_status: 'ACTIVE',
+        campaign: { id: 'campaign-1', name: 'Camp đang chạy', status: 'ACTIVE', effective_status: 'ACTIVE' },
         creative: { id: 'c1', name: 'Creative váy', thumbnail_url: 'https://img.example/vay.jpg', object_type: 'VIDEO' }
       }],
       paging: { cursors: { after: 'cursor-1' }, next: 'https://graph.facebook.com/next' }
     },
-    { data: [{ id: '1002', name: 'Ads 2', status: 'PAUSED', creative: { id: 'c2' } }] }
+    { data: [
+      { id: '1002', name: 'Ads 2', status: 'PAUSED', campaign: { id: 'campaign-1', status: 'ACTIVE' }, creative: { id: 'c2' } },
+      { id: '1003', name: 'Ads thuộc camp dừng', status: 'ACTIVE', effective_status: 'ACTIVE', campaign: { id: 'campaign-2', status: 'PAUSED', effective_status: 'PAUSED' }, creative: { id: 'c3' } }
+    ] }
   ];
   const fetchImpl = async (input, init) => {
     const url = new URL(input);
@@ -67,6 +71,7 @@ test('Marketing API dùng Bearer token, phân trang và chuẩn hoá creative', 
   assert.equal(result.account_id, 'act_123');
   assert.equal(result.ads.length, 1);
   assert.equal(result.ads[0].effective_status, 'ACTIVE');
+  assert.equal(result.ads[0].campaign_effective_status, 'ACTIVE');
   assert.equal(result.ads[0].cover_url, 'https://img.example/vay.jpg');
   assert.equal(result.ads[0].creative_id, 'c1');
   assert.equal(calls.length, 2);
@@ -84,7 +89,7 @@ test('tự tìm Ad Account khi token chỉ truy cập đúng một tài khoản'
     if (url.pathname.endsWith('/me/adaccounts')) {
       return Response.json({ data: [{ id: 'act_555', name: 'Shop chính', account_status: 1 }] });
     }
-    return Response.json({ data: [{ id: 'ad-1', name: 'Ads đầu tiên', status: 'ACTIVE' }] });
+    return Response.json({ data: [{ id: 'ad-1', name: 'Ads đầu tiên', status: 'ACTIVE', campaign: { id: 'campaign-1', status: 'ACTIVE' } }] });
   };
   const result = await fetchFacebookAds({ accessToken: 'secret-token', fetchImpl });
   assert.equal(result.account_id, 'act_555');

@@ -194,7 +194,7 @@
       return state.ads.filter((ad) => {
         const searchable = [ad.name, ad.id, ad.creative_id, ad.creative_name].join(' ').toLocaleLowerCase('vi-VN');
         const mappingMatches = mapping === 'all' || (mapping === 'mapped' ? Boolean(ad.product) : !ad.product);
-        return ad.effective_status === 'ACTIVE' && (!search || searchable.includes(search)) && mappingMatches;
+        return ad.effective_status === 'ACTIVE' && ad.campaign_effective_status === 'ACTIVE' && (!search || searchable.includes(search)) && mappingMatches;
       });
     }
 
@@ -234,7 +234,7 @@
         const response = await fetch('/api/facebook-ads');
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Không thể đồng bộ Facebook Ads.');
-        state = { ads: (data.ads || []).filter((ad) => ad.effective_status === 'ACTIVE'), products: data.products || [], accountId: data.account_id, syncedAt: data.synced_at };
+        state = { ads: (data.ads || []).filter((ad) => ad.effective_status === 'ACTIVE' && ad.campaign_effective_status === 'ACTIVE'), products: data.products || [], accountId: data.account_id, syncedAt: data.synced_at };
         $('account').textContent = data.account_id;
         $('synced').textContent = `· ${new Date(data.synced_at).toLocaleString('vi-VN')}`;
         $('notice').className = 'success';

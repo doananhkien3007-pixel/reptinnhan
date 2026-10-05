@@ -56,6 +56,7 @@ export function getCreativeDestination(creative = {}) {
 
 export function normalizeFacebookAd(ad = {}) {
   const creative = ad.creative || {};
+  const campaign = ad.campaign || {};
   return {
     id: String(ad.id || ''),
     name: String(ad.name || 'Quảng cáo chưa đặt tên'),
@@ -63,6 +64,10 @@ export function normalizeFacebookAd(ad = {}) {
     effective_status: String(ad.effective_status || ad.status || 'UNKNOWN'),
     created_time: ad.created_time || null,
     updated_time: ad.updated_time || null,
+    campaign_id: campaign.id ? String(campaign.id) : null,
+    campaign_name: campaign.name || null,
+    campaign_status: String(campaign.status || 'UNKNOWN'),
+    campaign_effective_status: String(campaign.effective_status || campaign.status || 'UNKNOWN'),
     creative_id: creative.id ? String(creative.id) : null,
     creative_name: creative.name || null,
     creative_type: creative.object_type || null,
@@ -130,6 +135,7 @@ export async function fetchFacebookAds({ accountId, accessToken, version = DEFAU
   });
   const fields = [
     'id', 'name', 'status', 'effective_status', 'created_time', 'updated_time',
+    'campaign{id,name,status,effective_status}',
     'creative{id,name,thumbnail_url,image_url,object_type,object_story_spec,asset_feed_spec}'
   ].join(',');
   const ads = [];
@@ -150,7 +156,7 @@ export async function fetchFacebookAds({ accountId, accessToken, version = DEFAU
     }
     const activeAds = (Array.isArray(result.data) ? result.data : [])
       .map(normalizeFacebookAd)
-      .filter((ad) => ad.effective_status === 'ACTIVE');
+      .filter((ad) => ad.effective_status === 'ACTIVE' && ad.campaign_effective_status === 'ACTIVE');
     ads.push(...activeAds);
     after = result.paging?.cursors?.after || null;
     if (!after || !result.paging?.next) break;
