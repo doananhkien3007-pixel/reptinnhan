@@ -11,6 +11,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
   process.env.MESSENGER_TYPING_DELAY_MS = '0';
   process.env.MESSENGER_SEQUENCE_DELAY_MS = '0';
   process.env.MESSENGER_INITIAL_REPLY_DELAY_MS = '0';
+  process.env.MESSENGER_MODE = 'contextual_ai';
 
   const product = {
     id: 7,
@@ -24,6 +25,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     images: [
       { image_url: 'https://example.com/secondary.jpg', facebook_attachment_id: 'secondary-attachment', sort_order: 1 },
       { image_url: 'https://example.com/primary.jpg', facebook_attachment_id: 'primary-attachment', is_primary: true, sort_order: 2 },
+      { image_url: 'https://example.com/third.jpg', facebook_attachment_id: 'third-attachment', sort_order: 3 },
       { media_type: 'video', facebook_attachment_id: 'video-attachment', sort_order: 3 }
     ]
   };
@@ -77,7 +79,6 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       sentToMessenger.push(payload);
       return json({ message_id: `mid-${sentToMessenger.length}` });
     }
-
     const table = url.pathname.split('/').at(-1);
     const single = new Headers(init.headers).get('accept')?.includes('vnd.pgrst.object');
     if (table === 'order_checkouts') return json(checkoutRow);
@@ -212,6 +213,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     responseStatus = 'completed';
     aiResult = { intent: 'other', reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
     failAttachmentOnce = null;
+    process.env.MESSENGER_MODE = 'contextual_ai';
     process.env.AUTO_ORDERS_ENABLED = 'false';
     process.env.FB_APP_SECRET = 'test-fb-app-secret';
     checkoutRow = null; orders.length = 0; orderEvents.clear(); failOrderCommit = false; failCheckpointAfterOrder = false;
@@ -254,6 +256,35 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       await deliver('gửi hình với video');
       assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id),
         [aiResult.reply, 'primary-attachment', 'video-attachment']);
+    });
+    await scenario('chế độ giới thiệu chỉ gửi video, 3 ảnh, 2 tin nhắn một lần rồi dừng', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      await deliver('mẫu này giá bao nhiêu');
+      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
+        'video-attachment',
+        'primary-attachment',
+        'secondary-attachment',
+        'third-attachment',
+        PROMOTION_MESSAGE,
+        SIZE_QUESTION
+      ]);
+      assert.equal(aiRequests.length, 0);
+      await deliver('chị cao 1m60 nặng 53kg');
+      assert.equal(sentToMessenger.length, 6);
+      assert.equal(aiRequests.length, 0);
+    });
+    await scenario('giới thiệu lỗi giữa chừng thì thử lại chỉ gửi phần còn thiếu', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      const event = { text: 'gửi mẫu cho chị', mid: 'retry-introduction' };
+      failAttachmentOnce = 'primary-attachment';
+      await deliver(event, {}, 503);
+      assert.deepEqual(sentToMessenger.map(item => item.message.attachment?.payload?.attachment_id), ['video-attachment']);
+      await deliver(event);
+      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
+        'video-attachment', 'primary-attachment', 'secondary-attachment', 'third-attachment', PROMOTION_MESSAGE, SIZE_QUESTION
+      ]);
+      assert.equal(aiRequests.length, 0);
+      assert.equal(storedMessages.filter(item => item.text === '[Video sản phẩm 7:video-attachment]').length, 1);
     });
     await scenario('từ chối ID media ngoài sản phẩm đang tư vấn', async () => {
       aiResult = { intent: 'media', reply: 'Dạ em gửi ảnh.', media_ids: ['unknown-attachment'] };

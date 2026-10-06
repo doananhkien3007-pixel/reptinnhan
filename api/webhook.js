@@ -11,8 +11,10 @@ import { syncFacebookProfile } from '../server/facebook-profile.js';
 import { ordersEnabled, readCheckout, readOrderEvent, commitCheckout } from '../server/orders.js';
 import { hasExplicitPurchaseIntent } from '../server/order-checkout.js';
 import { readWebhookBody } from '../server/webhook-body.js';
+import { planIntroduction } from '../server/product-introduction.js';
 export const config = { api: { bodyParser: false } };
 import {
+  getAllSentTexts,
   getOrCreateConversation,
   saveConversationMessage,
   updateConversationAd
@@ -332,9 +334,26 @@ async function analyzeCustomerTurn(conversation, receivedText, turn, context) {
 }
 
 async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context) {
-  await trace.nodeStarted('ai_agent', { mode: 'contextual_ai', history_count: context.history.length });
+  const introductionOnly = process.env.MESSENGER_MODE !== 'contextual_ai';
+  await trace.nodeStarted('ai_agent', {
+    mode: introductionOnly ? 'introduction_only' : 'contextual_ai',
+    history_count: context.history.length
+  });
   let plan = turn.value.plan;
-  if (!plan) {
+  if (introductionOnly) {
+    if (!context.product) throw new Error('Chưa xác định được sản phẩm đang hoạt động để giới thiệu.');
+    // Rebuild from durable outbound markers on every retry. This prevents a
+    // successful Facebook send from being repeated if its checkpoint failed.
+    const sentTexts = await getAllSentTexts(recipientId);
+    const introduction = planIntroduction(context.product, sentTexts);
+    const actions = [
+      ...introduction.videos.map(({ video, marker }) => ({ type: 'media', media: video, marker })),
+      ...introduction.images.map(({ image, marker }) => ({ type: 'media', media: image, marker })),
+      ...introduction.messages.map((text) => ({ type: 'text', text }))
+    ];
+    plan = { intent: 'product_introduction', actions };
+    await checkpointTurn(turn, { plan, sent_count: 0 });
+  } else if (!plan) {
     const result = await analyzeCustomerTurn(conversation, receivedText, turn, context);
     const actions = [{ type: 'text', text: result.reply }];
     for (const id of result.media_ids) {
@@ -436,7 +455,8 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
       if (global.messages.length > 200) global.messages.shift();
       addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
     }
-    const captureOrders = ordersEnabled();
+    const introductionOnly = process.env.MESSENGER_MODE !== 'contextual_ai';
+    const captureOrders = !introductionOnly && ordersEnabled();
     const context = autoReplyEnabled || captureOrders ? await getReplyContext(conversation, receivedText) : null;
     await trace.patch({ product_id: context?.product?.id || null, product_name: context?.product?.name || null });
     await trace.nodeCompleted(stage, { product_id: context?.product?.id || null });
