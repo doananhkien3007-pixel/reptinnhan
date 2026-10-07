@@ -12,55 +12,57 @@ let previewSenderId = null;
 let previewHistory = [];
 let previewVersion = 0;
 let audioContext = null;
-let soundEnabled = true;
-let soundError = false;
+let pendingMessageSound = false;
 let seenIncomingMessages = null;
-const soundPreferenceKey = 'leafchat.inbox.sound';
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-try { soundEnabled = window.localStorage.getItem(soundPreferenceKey) !== 'off'; } catch {}
 
-function updateSoundControl() {
-  const button = $('sound-toggle');
-  const ready = soundEnabled && audioContext?.state === 'running' && !soundError;
-  button.disabled = !AudioContextClass;
-  button.setAttribute('aria-pressed', String(!!ready));
-  button.textContent = !AudioContextClass ? 'Âm báo không khả dụng' : !soundEnabled ? 'Âm báo: tắt' : ready ? 'Âm báo: bật' : 'Bật âm báo';
-  button.title = !AudioContextClass ? 'Trình duyệt chưa hỗ trợ âm báo.' : ready ? 'Tắt tiếng ping ping khi có tin mới.' : 'Bấm để bật và nghe thử tiếng ping ping.';
-}
-
-async function unlockNotificationAudio() {
-  if (!soundEnabled || !AudioContextClass) return;
+function ensureNotificationAudio() {
+  if (!AudioContextClass) return false;
   try {
     if (!audioContext || audioContext.state === 'closed') {
       audioContext = new AudioContextClass();
-      audioContext.onstatechange = updateSoundControl;
+      audioContext.onstatechange = () => {
+        if (audioContext.state === 'running' && pendingMessageSound) playMessageTing();
+      };
     }
-    if (audioContext.state !== 'running') await audioContext.resume();
-    soundError = false;
-  } catch { soundError = true; }
-  updateSoundControl();
+    return true;
+  } catch { return false; }
 }
 
-function playMessagePing() {
-  if (!soundEnabled || audioContext?.state !== 'running') return;
+async function unlockNotificationAudio() {
+  if (!ensureNotificationAudio()) return;
+  try {
+    if (audioContext.state !== 'running') await audioContext.resume();
+    if (pendingMessageSound) playMessageTing();
+  } catch { /* Retry on the next interaction if the browser blocks audio. */ }
+}
+
+function playMessageTing() {
+  pendingMessageSound = true;
+  if (!ensureNotificationAudio() || audioContext.state !== 'running') return;
   try {
     const start = audioContext.currentTime + 0.01;
-    [0, 0.23].forEach(offset => {
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      const time = start + offset;
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(1046.5, time);
-      gain.gain.setValueAtTime(0, time);
-      gain.gain.linearRampToValueAtTime(0.18, time + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
-      oscillator.connect(gain);
-      gain.connect(audioContext.destination);
-      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
-      oscillator.start(time);
-      oscillator.stop(time + 0.2);
+    // Two rising bell notes with quiet, fast-decaying overtones and a soft tail.
+    [1318.51, 1567.98].forEach((pitch, index) => {
+      const time = start + index * 0.22;
+      [[1, 0.14, 0.52], [2.76, 0.025, 0.22], [4.08, 0.008, 0.12]].forEach(([ratio, volume, duration]) => {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(pitch * ratio, time);
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(volume, time + 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+        gain.gain.linearRampToValueAtTime(0, time + duration + 0.02);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+        oscillator.start(time);
+        oscillator.stop(time + duration + 0.025);
+      });
     });
-  } catch { soundError = true; updateSoundControl(); }
+    pendingMessageSound = false;
+  } catch { /* Keep the alert pending so a later interaction can retry. */ }
 }
 
 function notifyIncomingMessages(messages) {
@@ -82,27 +84,15 @@ function notifyIncomingMessages(messages) {
   }
   // Retain recent identities across empty responses and the 200-message window.
   while (seenIncomingMessages.size > 2000) seenIncomingMessages.delete(seenIncomingMessages.keys().next().value);
-  if (hasNewIncoming) playMessagePing();
+  if (hasNewIncoming) playMessageTing();
 }
 
-$('sound-toggle').addEventListener('click', async () => {
-  if (soundEnabled && audioContext?.state === 'running' && !soundError) {
-    soundEnabled = false;
-  } else {
-    soundEnabled = true;
-    await unlockNotificationAudio();
-    playMessagePing();
-  }
-  try { window.localStorage.setItem(soundPreferenceKey, soundEnabled ? 'on' : 'off'); } catch {}
-  updateSoundControl();
-});
-document.addEventListener('click', event => {
-  if (!event.target.closest('#sound-toggle')) unlockNotificationAudio();
-});
-document.addEventListener('keydown', event => {
-  if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('#sound-toggle')) unlockNotificationAudio();
-});
-updateSoundControl();
+// Start automatically where autoplay is allowed; otherwise any normal click,
+// touch or key press unlocks audio without a separate on/off control.
+ensureNotificationAudio();
+document.addEventListener('pointerdown', unlockNotificationAudio);
+document.addEventListener('click', unlockNotificationAudio);
+document.addEventListener('keydown', unlockNotificationAudio);
 
 function resetPreview() {
   previewHistory = [];
@@ -397,4 +387,4 @@ fetchMessages();
 loadReplyStatus();
 setInterval(fetchMessages, 3000);
 setInterval(() => { if (!document.hidden) loadReplyStatus(); }, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { fetchMessages(); loadReplyStatus(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { unlockNotificationAudio(); fetchMessages(); loadReplyStatus(); } });

@@ -1,5 +1,5 @@
 .inbox-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-bottom:26px; }
-.heading-actions { flex-wrap:wrap; }#sound-toggle[aria-pressed="true"] { background:#eaf3ec; border-color:#c8dfce; color:#31704a; }
+.heading-actions { flex-wrap:wrap; }
 .stat-card { background:white; border:1px solid var(--line); border-radius:11px; min-height:121px; padding:20px 16px; display:flex; gap:13px; position:relative; }
 .stat-icon { background:#edf6ef; color:#408358; width:36px; height:36px; border-radius:10px; display:grid; place-items:center; flex-shrink:0; }
 .stat-icon.warm { background:#fcf5e8; color:#b28c43; }.stat-icon.sage { background:#edf3ed; color:#668467; }
