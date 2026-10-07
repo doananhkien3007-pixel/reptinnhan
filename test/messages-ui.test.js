@@ -3,6 +3,147 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
+async function soundHarness({ preference, supported = true, storageThrows = false, resumeFails = false } = {}) {
+  const elements = new Map();
+  const listeners = {};
+  const intervals = [];
+  const tones = [];
+  const audioContexts = [];
+  const storage = new Map(preference ? [['leafchat.inbox.sound', preference]] : []);
+  let messages = [{ senderId: 'customer-1', direction: 'inbound', text: 'Tin cũ', time: '10:00:00' }];
+  let fetchFails = false;
+  class MockAudioContext {
+    constructor() { this.state = 'suspended'; this.currentTime = 10; this.destination = {}; audioContexts.push(this); }
+    async resume() {
+      if (resumeFails) throw new Error('Audio unavailable');
+      this.state = 'running';
+      this.onstatechange?.();
+    }
+    createOscillator() {
+      const tone = { frequency: { setValueAtTime(value) { tone.pitch = value; } }, connect() {}, disconnect() {}, start(time) { tone.startTime = time; }, stop(time) { tone.stopTime = time; } };
+      tones.push(tone);
+      return tone;
+    }
+    createGain() { return { gain: { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
+  }
+  const context = vm.createContext({
+    document: {
+      hidden: true,
+      getElementById(id) {
+        if (!elements.has(id)) elements.set(id, {
+          innerHTML: '', textContent: '', value: '', disabled: false, dataset: {},
+          scrollTop: 0, scrollHeight: 0, clientHeight: 0, attributes: {}, listeners: {},
+          addEventListener(type, listener) { this.listeners[type] = listener; },
+          setAttribute(name, value) { this.attributes[name] = value; },
+          querySelectorAll() { return []; }, classList: { add() {}, remove() {} }
+        });
+        return elements.get(id);
+      },
+      querySelectorAll() { return []; },
+      addEventListener(type, listener) { listeners[type] = listener; }
+    },
+    window: {
+      AudioContext: supported ? MockAudioContext : undefined,
+      localStorage: {
+        getItem(key) { if (storageThrows) throw new Error('Storage blocked'); return storage.get(key); },
+        setItem(key, value) { if (storageThrows) throw new Error('Storage blocked'); storage.set(key, value); }
+      }
+    },
+    appIcon: () => '',
+    fetch: async url => {
+      if (String(url).includes('get_messages')) {
+        if (fetchFails) throw new Error('Offline');
+        return Response.json(messages);
+      }
+      return Response.json({ enabled: true });
+    },
+    setInterval(callback, delay) { intervals.push({ callback, delay }); }
+  });
+  vm.runInContext(fs.readFileSync(new URL('../public/inbox.js', import.meta.url), 'utf8'), context);
+  await new Promise(resolve => setImmediate(resolve));
+  return {
+    context, elements, listeners, intervals, tones, audioContexts, storage,
+    setMessages(value) { messages = value; },
+    setFetchFails(value) { fetchFails = value; },
+    async gesture() { listeners.click({ target: { closest() { return null; } } }); await new Promise(resolve => setImmediate(resolve)); },
+    async toggle() { await elements.get('sound-toggle').listeners.click(); }
+  };
+}
+
+test('âm báo phát hai ping cho tin khách mới, bỏ qua lịch sử, AI và thay đổi hồ sơ', async () => {
+  const h = await soundHarness();
+  const old = { senderId: 'customer-1', direction: 'inbound', text: 'Tin cũ', time: '10:00:00' };
+  assert.equal(h.tones.length, 0);
+  assert.equal(h.audioContexts.length, 0);
+  await h.gesture();
+  assert.equal(h.elements.get('sound-toggle').attributes['aria-pressed'], 'true');
+  assert.equal(h.tones.length, 0);
+  h.setMessages([{ ...old, customerName: 'Lan', profilePic: 'https://example.com/photo.png', adId: 'ad-1' },
+    { ...old, direction: 'outbound', text: 'AI trả lời' }]);
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 0);
+  const incoming = { senderId: 'customer-2', direction: 'inbound', text: 'Xin giá', time: '10:01:00' };
+  h.setMessages([old, incoming, { ...incoming, direction: 'outbound', text: 'AI đã trả lời ngay' }]);
+  // The regular timer still polls when the tab is hidden.
+  await h.intervals.find(item => item.delay === 3000).callback();
+  assert.equal(h.tones.length, 2);
+  assert.equal(h.tones[0].pitch, 1046.5);
+  assert.ok(Math.abs(h.tones[1].startTime - h.tones[0].startTime - 0.23) < 0.0001);
+  assert.ok(h.tones.every(tone => tone.stopTime > tone.startTime));
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 2);
+  // A rolling window can replace an old row without increasing the total.
+  h.setMessages([incoming, { ...incoming, text: 'Còn hàng không?', time: '10:02:00' }]);
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 4);
+  h.setMessages([incoming, incoming]);
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 6, 'identical inbound rows still count as separate messages');
+  h.setMessages([]);
+  await h.context.fetchMessages();
+  h.setMessages([old, incoming, incoming]);
+  h.setFetchFails(true);
+  await h.context.fetchMessages();
+  h.setFetchFails(false);
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 6, 'recovery must not replay previously seen messages');
+});
+
+test('âm báo nghe thử khi bật, ghi nhớ tắt và không phát bù tin đã nhận lúc tắt', async () => {
+  const h = await soundHarness();
+  await h.toggle();
+  assert.equal(h.tones.length, 2);
+  await h.toggle();
+  assert.equal(h.storage.get('leafchat.inbox.sound'), 'off');
+  assert.equal(h.elements.get('sound-toggle').attributes['aria-pressed'], 'false');
+  h.setMessages([{ senderId: 'customer-2', direction: 'inbound', text: 'Tin lúc tắt', time: '10:01:00' }]);
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 2);
+  await h.toggle();
+  assert.equal(h.tones.length, 4, 'enabling previews the two pings');
+  assert.equal(h.storage.get('leafchat.inbox.sound'), 'on');
+  await h.context.fetchMessages();
+  assert.equal(h.tones.length, 4);
+  const muted = await soundHarness({ preference: 'off' });
+  await muted.gesture();
+  assert.equal(muted.audioContexts.length, 0);
+  assert.equal(muted.elements.get('sound-toggle').textContent, 'Âm báo: tắt');
+});
+
+test('hộp thư vẫn cập nhật khi âm thanh hoặc localStorage không khả dụng', async () => {
+  for (const options of [{ supported: false }, { storageThrows: true }, { resumeFails: true }]) {
+    const h = await soundHarness(options);
+    await h.toggle();
+    h.setMessages([{ senderId: 'customer-2', direction: 'inbound', text: 'Tin mới', time: '10:01:00' }]);
+    await h.context.fetchMessages();
+    assert.match(h.elements.get('chat-box').innerHTML, /Tin mới/);
+    if (options.supported === false || options.resumeFails) {
+      assert.equal(h.tones.length, 0);
+      assert.equal(h.elements.get('sound-toggle').attributes['aria-pressed'], 'false');
+    }
+  }
+});
+
 test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội thoại', async () => {
   const elements = new Map();
   const element = () => {
@@ -24,6 +165,7 @@ test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội
   ];
   const context = vm.createContext({
     console,
+    window: {},
     document: {
       getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
       querySelectorAll() { return []; }, addEventListener() {}

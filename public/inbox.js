@@ -11,6 +11,98 @@ let promptLoaded = false;
 let previewSenderId = null;
 let previewHistory = [];
 let previewVersion = 0;
+let audioContext = null;
+let soundEnabled = true;
+let soundError = false;
+let seenIncomingMessages = null;
+const soundPreferenceKey = 'leafchat.inbox.sound';
+const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+try { soundEnabled = window.localStorage.getItem(soundPreferenceKey) !== 'off'; } catch {}
+
+function updateSoundControl() {
+  const button = $('sound-toggle');
+  const ready = soundEnabled && audioContext?.state === 'running' && !soundError;
+  button.disabled = !AudioContextClass;
+  button.setAttribute('aria-pressed', String(!!ready));
+  button.textContent = !AudioContextClass ? 'Âm báo không khả dụng' : !soundEnabled ? 'Âm báo: tắt' : ready ? 'Âm báo: bật' : 'Bật âm báo';
+  button.title = !AudioContextClass ? 'Trình duyệt chưa hỗ trợ âm báo.' : ready ? 'Tắt tiếng ping ping khi có tin mới.' : 'Bấm để bật và nghe thử tiếng ping ping.';
+}
+
+async function unlockNotificationAudio() {
+  if (!soundEnabled || !AudioContextClass) return;
+  try {
+    if (!audioContext || audioContext.state === 'closed') {
+      audioContext = new AudioContextClass();
+      audioContext.onstatechange = updateSoundControl;
+    }
+    if (audioContext.state !== 'running') await audioContext.resume();
+    soundError = false;
+  } catch { soundError = true; }
+  updateSoundControl();
+}
+
+function playMessagePing() {
+  if (!soundEnabled || audioContext?.state !== 'running') return;
+  try {
+    const start = audioContext.currentTime + 0.01;
+    [0, 0.23].forEach(offset => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const time = start + offset;
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(1046.5, time);
+      gain.gain.setValueAtTime(0, time);
+      gain.gain.linearRampToValueAtTime(0.18, time + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+      oscillator.start(time);
+      oscillator.stop(time + 0.2);
+    });
+  } catch { soundError = true; updateSoundControl(); }
+}
+
+function notifyIncomingMessages(messages) {
+  const counts = new Map();
+  for (const message of messages) {
+    if (message.direction === 'outbound') continue;
+    // Profile and ad updates must not look like new messages. Count identical
+    // messages separately because the API's display time has second precision.
+    const key = JSON.stringify([message.senderId, message.direction || 'inbound', message.text, message.time]);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  if (seenIncomingMessages === null) { seenIncomingMessages = counts; return; }
+  let hasNewIncoming = false;
+  for (const [key, count] of counts) {
+    if (count > (seenIncomingMessages.get(key) || 0)) {
+      hasNewIncoming = true;
+      seenIncomingMessages.set(key, count);
+    }
+  }
+  // Retain recent identities across empty responses and the 200-message window.
+  while (seenIncomingMessages.size > 2000) seenIncomingMessages.delete(seenIncomingMessages.keys().next().value);
+  if (hasNewIncoming) playMessagePing();
+}
+
+$('sound-toggle').addEventListener('click', async () => {
+  if (soundEnabled && audioContext?.state === 'running' && !soundError) {
+    soundEnabled = false;
+  } else {
+    soundEnabled = true;
+    await unlockNotificationAudio();
+    playMessagePing();
+  }
+  try { window.localStorage.setItem(soundPreferenceKey, soundEnabled ? 'on' : 'off'); } catch {}
+  updateSoundControl();
+});
+document.addEventListener('click', event => {
+  if (!event.target.closest('#sound-toggle')) unlockNotificationAudio();
+});
+document.addEventListener('keydown', event => {
+  if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('#sound-toggle')) unlockNotificationAudio();
+});
+updateSoundControl();
 
 function resetPreview() {
   previewHistory = [];
@@ -127,6 +219,7 @@ async function fetchMessages() {
   try {
     const messages = await api('get_messages');
     if (!Array.isArray(messages)) throw new Error('Không đọc được danh sách tin nhắn.');
+    notifyIncomingMessages(messages);
     const signature = JSON.stringify(messages);
     if (signature !== messageSignature) {
       messageSignature = signature;
@@ -302,6 +395,6 @@ document.addEventListener('error', event => {
 
 fetchMessages();
 loadReplyStatus();
-setInterval(() => { if (!document.hidden) fetchMessages(); }, 3000);
+setInterval(fetchMessages, 3000);
 setInterval(() => { if (!document.hidden) loadReplyStatus(); }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { fetchMessages(); loadReplyStatus(); } });
