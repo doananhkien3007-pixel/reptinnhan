@@ -1,6 +1,8 @@
 # Trả lời khách theo ngữ cảnh
 
-Webhook hiện gọi AI cho mỗi tin mới khi bật trả lời tự động, thay cho bộ giới thiệu cố định rồi dừng.
+Khi `MESSENGER_MODE=contextual_ai`, webhook gọi AI cho mỗi tin mới khi bật trả lời tự động. Mặc định là `introduction_only`: gửi bộ giới thiệu một lần, nhưng ưu tiên xử lý số đo/thông tin nhận hàng trước kịch bản này.
+
+Trong chế độ `introduction_only`, tin có số đo hoặc thông tin nhận hàng không tự kích hoạt video, ảnh hay quảng cáo. Server đọc số đo trong tin mới và tối đa 60 tin lịch sử, chỉ lấy từ khách, ưu tiên số đo sửa mới nhất; hỗ trợ `m59`, `1m59`, `1.59m`, `159cm`, `nang 70` và `70kg`. Đã có cân nặng thì đối chiếu bảng size sản phẩm; ngoài bảng/thiếu bảng thì nói rõ, không chọn size gần nhất. Đã có chiều cao thì không hỏi lại chiều cao. Thông tin nhận hàng chỉ được ghi nhận, không tự coi là chốt đơn; chế độ này không gọi AI hay tự tạo đơn. Các nhu cầu hội thoại khác cần `contextual_ai` để tư vấn tiếp. Bộ giới thiệu khi cần gửi phần còn thiếu cũng bỏ câu hỏi số đo khách đã cung cấp.
 
 ## Cách hoạt động
 

@@ -12,6 +12,7 @@ import { ordersEnabled, readCheckout, readOrderEvent, commitCheckout } from '../
 import { hasExplicitPurchaseIntent } from '../server/order-checkout.js';
 import { readWebhookBody } from '../server/webhook-body.js';
 import { planIntroduction } from '../server/product-introduction.js';
+import { getIntroductionFollowup } from '../server/introduction-followup.js';
 export const config = { api: { bodyParser: false } };
 import {
   getAllSentTexts,
@@ -340,12 +341,18 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     history_count: context.history.length
   });
   let plan = turn.value.plan;
-  if (introductionOnly) {
+  const followup = introductionOnly ? getIntroductionFollowup(context.product, context.history, receivedText) : null;
+  if (followup) {
+    if (!plan) {
+      plan = { intent: followup.intent, actions: followup.reply ? [{ type: 'text', text: followup.reply }] : [] };
+      await checkpointTurn(turn, { plan, sent_count: 0 });
+    }
+  } else if (introductionOnly) {
     if (!context.product) throw new Error('Chưa xác định được sản phẩm đang hoạt động để giới thiệu.');
     // Rebuild from durable outbound markers on every retry. This prevents a
     // successful Facebook send from being repeated if its checkpoint failed.
     const sentTexts = await getAllSentTexts(recipientId);
-    const introduction = planIntroduction(context.product, sentTexts);
+    const introduction = planIntroduction(context.product, sentTexts, { history: context.history, receivedText });
     const actions = [
       ...introduction.videos.map(({ video, marker }) => ({ type: 'media', media: video, marker })),
       ...introduction.images.map(({ image, marker }) => ({ type: 'media', media: image, marker })),

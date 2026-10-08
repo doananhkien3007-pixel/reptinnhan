@@ -257,7 +257,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id),
         [aiResult.reply, 'primary-attachment', 'video-attachment']);
     });
-    await scenario('chế độ giới thiệu chỉ gửi video, 3 ảnh, 2 tin nhắn một lần rồi dừng', async () => {
+    await scenario('chế độ giới thiệu gửi bộ chào một lần và trả lời số đo ở lượt tiếp theo', async () => {
       process.env.MESSENGER_MODE = 'introduction_only';
       await deliver('mẫu này giá bao nhiêu');
       assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
@@ -270,8 +270,42 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       ]);
       assert.equal(aiRequests.length, 0);
       await deliver('chị cao 1m60 nặng 53kg');
-      assert.equal(sentToMessenger.length, 6);
+      assert.equal(sentToMessenger.length, 7);
+      assert.match(sentToMessenger.at(-1).message.text, /53kg.*size M/);
       assert.equal(aiRequests.length, 0);
+    });
+    await scenario('tái hiện ảnh lỗi: khách gửi đủ số đo và nhận hàng không bị hỏi lại hay gửi bộ chào', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      await deliver('Cao m59 nặng 70kg sdt 0842432523 địa chỉ 1166/78 quốc lộ 1a bình tân');
+      assert.equal(sentToMessenger.length, 1);
+      assert.match(sentToMessenger[0].message.text, /70kg.*không nằm trong khoảng/);
+      assert.doesNotMatch(sentToMessenger[0].message.text, /xin chiều cao|xin cân nặng|tạo đơn/);
+      assert.equal(aiRequests.length, 0);
+      assert.equal(orders.length, 0);
+      await deliver('cảm ơn');
+      assert.equal(sentToMessenger.length, 1);
+    });
+    await scenario('giới thiệu nhớ số đo ở tin trước khi khách gửi số điện thoại', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      await deliver('cao m59');
+      assert.match(sentToMessenger[0].message.text, /xin cân nặng/);
+      await deliver('nang 53');
+      assert.match(sentToMessenger[1].message.text, /53kg.*size M/);
+      await deliver('sdt 0842432523');
+      assert.match(sentToMessenger[2].message.text, /53kg.*size M/);
+      assert.equal(sentToMessenger.length, 3);
+      assert.equal(aiRequests.length, 0);
+    });
+    await scenario('tư vấn số đo lỗi gửi thì retry một lần, không chuyển sang bộ chào', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      const event = { text: 'cao m59 nặng 53kg', mid: 'retry-measurements' };
+      failTextOnce = true;
+      await deliver(event, {}, 503);
+      await deliver(event);
+      await deliver(event);
+      assert.equal(sentToMessenger.length, 1);
+      assert.match(sentToMessenger[0].message.text, /53kg.*size M/);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
     });
     await scenario('giới thiệu lỗi giữa chừng thì thử lại chỉ gửi phần còn thiếu', async () => {
       process.env.MESSENGER_MODE = 'introduction_only';
