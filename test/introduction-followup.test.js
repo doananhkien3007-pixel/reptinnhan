@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
-import { planIntroduction, SIZE_QUESTION, getPromotionMessage } from '../server/product-introduction.js';
+import { planIntroduction, SIZE_QUESTION, getPromotionMessage, PROMOTION_MESSAGE } from '../server/product-introduction.js';
 
 const product = { id: 12, name: 'Váy hoa', price: 450000, sale_price: 279000, shipping_policy: 'Freeship', material: 'Lụa Mango Hàn Quốc', size_guide: 'Size XL: 66-75kg', images: [
   ...[1, 2, 3].map(id => ({ facebook_attachment_id: `image-${id}` })),
@@ -53,6 +53,11 @@ test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship c
   assert.doesNotMatch(message, /279|ưu đãi|Freeship|Mai/);
 });
 
+test('cả hai SKU Mango dùng chung nguyên văn lời báo giá', () => {
+  assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-279' }), PROMOTION_MESSAGE);
+  assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), PROMOTION_MESSAGE);
+});
+
 test('gửi một video nếu có và không gửi lại video đã lưu', () => {
   const plan=planIntroduction({...product,images:[...product.images,{media_type:'video',facebook_attachment_id:'video-2',sort_order:1}]},[]);
   assert.equal(plan.videos.length,1);
@@ -77,4 +82,28 @@ test('mẫu chưa có ảnh vẫn chỉ xin số đo một lần', () => {
   const noImages={...product,images:[]};
   const first=planIntroduction(noImages,[]);
   assert.deepEqual(planIntroduction(noImages,first.messages),{images:[],videos:[],messages:[]});
+});
+
+test('báo giá Mango không có tên chỉ thuộc mẫu trong dấu vết media trước đó', () => {
+  const mango = { ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279' };
+  const oldScript = ['[Video sản phẩm 12:old-video]', '[Ảnh sản phẩm 12:old-image]', PROMOTION_MESSAGE, SIZE_QUESTION];
+  const plan = planIntroduction(mango, oldScript);
+  assert.equal(plan.images.length, 3);
+  assert.equal(plan.videos.length, 1);
+  assert.deepEqual(plan.messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
+
+  const currentScript = [...oldScript, '[Ảnh sản phẩm 13:image-1]', PROMOTION_MESSAGE, SIZE_QUESTION];
+  assert.deepEqual(planIntroduction(mango, currentScript), { images: [], videos: [], messages: [] });
+  assert.deepEqual(planIntroduction(mango, ['[Video sản phẩm 13:video-1]', ...PROMOTION_MESSAGE.split('\n\n'), SIZE_QUESTION]),
+    { images: [], videos: [], messages: [] });
+  // Product 12 used the same nameless copy before its current quote changed.
+  assert.deepEqual(planIntroduction(product, oldScript), { images: [], videos: [], messages: [] });
+});
+
+test('media mẫu khác ngắt ngữ cảnh giá và câu hỏi của mẫu hiện tại', () => {
+  const mango = { ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279' };
+  const plan = planIntroduction(mango, ['[Ảnh sản phẩm 13:image-1]', '[Ảnh sản phẩm 12:old-image]', PROMOTION_MESSAGE, SIZE_QUESTION]);
+  assert.deepEqual(plan.messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
+  assert.equal(plan.images.length, 2);
+  assert.deepEqual(planIntroduction(mango, [PROMOTION_MESSAGE, SIZE_QUESTION]).messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
 });

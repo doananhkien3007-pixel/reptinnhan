@@ -12,7 +12,7 @@ Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có �
 
 ## Bộ giới thiệu
 
-Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Tiếp theo là giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Không tự thêm freeship hay thời hạn ưu đãi. Riêng mẫu SKU `MANGO-HQ-HONG-TIM-279` (Ads `52590312182503`) dùng nguyên văn lời ưu đãi shop đã yêu cầu, gồm giá 279K, freeship, giá 450K ngày mai và đoạn giới thiệu chất liệu. Cuối cùng xin chiều cao và cân nặng.
+Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Hai mẫu SKU `MANGO-HQ-279` (Ads `52589265758103`) và `MANGO-HQ-HONG-TIM-279` (Ads `52590312182503`) dùng chung nguyên văn lời ưu đãi shop đã yêu cầu, gồm giá 279K, freeship, giá 450K ngày mai và đoạn giới thiệu chất liệu. Các mẫu khác dùng giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Cuối cùng xin chiều cao và cân nặng.
 
 ## Trạng thái theo UID khách + sản phẩm
 
@@ -25,6 +25,8 @@ Luồng chính: webhook nhận tin → lấy Ads ID mới nhất của đúng kh
 - Gửi lỗi giữa chừng: trạng thái `sending`, tiếp tục những bước chưa gửi. Danh sách hành động và số bước đã gửi được lưu bền, không dùng bộ nhớ process.
 
 Với khách cũ chưa có trạng thái mới, server đọc lịch sử đã lưu một lần để nhận biết bộ giới thiệu đã hoàn tất hoặc tiếp tục phần còn thiếu. Sau đó dùng trạng thái riêng theo UID + ID sản phẩm. Đổi giá, tên hoặc media không tự mở lại trạng thái đã giới thiệu.
+
+Lời báo giá cũ không ghi tên mẫu chỉ được tính khi dấu vết ảnh/video trước đó xác định đúng ID sản phẩm. Dấu vết media của mẫu khác đổi ngữ cảnh lịch sử; nội dung báo giá giống nhau không đánh dấu hai mẫu là đã giới thiệu. Nếu không xác định được mẫu của lời báo giá cũ, không dùng lời đó để chặn mẫu hiện tại.
 
 Khách gửi cân nặng/chiều cao hoặc thông tin nhận hàng trước khi gửi hết bộ giới thiệu cũng được nhường cho nhân viên: trạng thái `human_handoff` **của đúng khách + sản phẩm**. Số đo của mẫu A và khóa bàn giao toàn khách cũ không chặn giới thiệu mẫu B. Sau khi đã giới thiệu, bot im lặng ngay, không cần đợi khách trả lời số đo. Tin khách vẫn được lưu và hiện trong hộp thư.
 
