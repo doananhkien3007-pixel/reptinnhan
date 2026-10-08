@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { PROMOTION_MESSAGE, SIZE_QUESTION } from '../server/product-introduction.js';
+import { PROMOTION_MESSAGE, SIZE_QUESTION, getPromotionMessage } from '../server/product-introduction.js';
 
 test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -39,6 +39,8 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
   let responseStatus = 'completed';
   let failHistory = false;
   let multipleProducts = false;
+  let extraProducts = [];
+  const adMappings = new Map();
   let failTextOnce = false;
   let eventCounter = 0;
   let failAttachmentOnce = null;
@@ -128,12 +130,16 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       if (method === 'PATCH') conversation = { ...conversation, ...JSON.parse(init.body) };
       return json(single ? conversation : [conversation], method === 'POST' ? 201 : 200);
     }
-    if (table === 'ad_product_mappings') return json(single ? null : []);
+    if (table === 'ad_product_mappings') {
+      const productId = adMappings.get(url.searchParams.get('ad_id')?.slice(3));
+      const mapping = productId ? { product_id: productId } : null;
+      return json(single ? mapping : mapping ? [mapping] : []);
+    }
     if (table === 'products') {
       const select = url.searchParams.get('select');
       if (select === 'images') return json([{ images: product.images }]);
       if (select === 'name,size_guide') return json(single ? product : [product]);
-      return json(single ? product : multipleProducts ? [product, { ...product, id: 8, sku: 'VAY-8', name: 'Váy lụa', price: 399000 }] : [product]);
+      return json(single ? product : extraProducts.length ? [product, ...extraProducts] : multipleProducts ? [product, { ...product, id: 8, sku: 'VAY-8', name: 'Váy lụa', price: 399000 }] : [product]);
     }
     if (table === 'messenger_messages') {
       if (method === 'POST') {
@@ -208,6 +214,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: 7 };
     failHistory = false;
     multipleProducts = false;
+    extraProducts = []; adMappings.clear();
     failTextOnce = false;
     aiStatus = 200;
     responseStatus = 'completed';
@@ -265,7 +272,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
         'primary-attachment',
         'secondary-attachment',
         'third-attachment',
-        PROMOTION_MESSAGE,
+        getPromotionMessage(product),
         SIZE_QUESTION
       ]);
       assert.equal(aiRequests.length, 0);
@@ -315,7 +322,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       assert.deepEqual(sentToMessenger.map(item => item.message.attachment?.payload?.attachment_id), ['video-attachment']);
       await deliver(event);
       assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
-        'video-attachment', 'primary-attachment', 'secondary-attachment', 'third-attachment', PROMOTION_MESSAGE, SIZE_QUESTION
+        'video-attachment', 'primary-attachment', 'secondary-attachment', 'third-attachment', getPromotionMessage(product), SIZE_QUESTION
       ]);
       assert.equal(aiRequests.length, 0);
       assert.equal(storedMessages.filter(item => item.text === '[Video sản phẩm 7:video-attachment]').length, 1);
@@ -346,6 +353,67 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       assert.equal(conversation.ad_id, 'new-unmapped-ad');
       assert.equal(conversation.current_product_id, 7);
       assert.match(aiRequests[0].instructions, /không suy ra từ lời quảng cáo cũ/);
+    });
+    const adProduct = {
+      ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279', name: 'Váy hoa thiết kế hồng tím',
+      price: 450000, sale_price: 279000, shipping_policy: 'Freeship', material: 'Lụa Mango Hàn Quốc', colors: ['Hồng', 'Tím'],
+      images: [1, 2, 3, 4].map(id => ({ color: id <= 2 ? 'Hồng' : 'Tím', facebook_attachment_id: `new-image-${id}`, sort_order: id }))
+    };
+    await scenario('ads chọn đúng mẫu không video, gửi bốn ảnh + ưu đãi + hỏi số đo, tin sau giữ mẫu', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      extraProducts = [adProduct]; adMappings.set('52590312182503', 13);
+      seed(PROMOTION_MESSAGE); seed('[Ảnh sản phẩm 7:primary-attachment]');
+      await deliver('mẫu này giá bao nhiêu', { message: { text: 'mẫu này giá bao nhiêu', mid: 'new-ad', referral: { ad_id: '52590312182503' } } });
+      assert.equal(conversation.ad_id, '52590312182503');
+      assert.equal(conversation.current_product_id, 13);
+      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
+        ...adProduct.images.map(image => image.facebook_attachment_id), getPromotionMessage(adProduct), SIZE_QUESTION
+      ]);
+      assert.match(sentToMessenger[4].message.text, /279\.000đ.*450\.000đ.*Freeship/);
+      await deliver('chị 53kg cao 1m60');
+      assert.equal(sentToMessenger.length, 7);
+      assert.match(sentToMessenger.at(-1).message.text, /hồng tím.*size M/);
+      assert.equal(aiRequests.length, 0);
+      await deliver('gửi mẫu cho chị');
+      assert.equal(sentToMessenger.length, 7);
+    });
+    await scenario('đổi ads sang mẫu khác gửi đúng ảnh và giá mới', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      extraProducts = [adProduct]; adMappings.set('old-ad', 7); adMappings.set('52590312182503', 13);
+      await deliver('xem mẫu', { referral: { ad_id: 'old-ad' } });
+      sentToMessenger.length = 0;
+      await deliver('xem mẫu', { postback: { referral: { ad_id: '52590312182503' } } });
+      assert.equal(conversation.current_product_id, 13);
+      assert.deepEqual(sentToMessenger.filter(item => item.message.attachment).map(item => item.message.attachment.payload.attachment_id), adProduct.images.map(image => image.facebook_attachment_id));
+      assert.ok(sentToMessenger.some(item => item.message.text === getPromotionMessage(adProduct)));
+    });
+    await scenario('mẫu không video lỗi khi gửi giá thì retry không gửi lại ảnh, giá hoặc câu hỏi', async () => {
+      process.env.MESSENGER_MODE = 'introduction_only';
+      extraProducts = [adProduct]; adMappings.set('52590312182503', 13);
+      failTextOnce = true;
+      const message = { text: 'xem mẫu', mid: 'no-video-retry' };
+      const event = { referral: { ad_id: '52590312182503' } };
+      await deliver(message, event, 503);
+      assert.equal(sentToMessenger.length, 4);
+      await deliver(message, event);
+      await deliver(message, event);
+      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
+        ...adProduct.images.map(image => image.facebook_attachment_id), getPromotionMessage(adProduct), SIZE_QUESTION
+      ]);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+    });
+    await scenario('mapping thêm sau referral được tìm lại khi hội thoại chưa có sản phẩm', async () => {
+      extraProducts = [adProduct]; adMappings.set('52590312182503', 13);
+      conversation.current_product_id = null; conversation.ad_id = '52590312182503';
+      await deliver('giá bao nhiêu');
+      assert.equal(conversation.current_product_id, 13);
+      assert.match(aiRequests[0].instructions, /"price_vnd":279000/);
+      assert.match(aiRequests[0].instructions, /Freeship/);
+    });
+    await scenario('tên mẫu mới chứa tên mẫu cũ vẫn chọn đúng tên đầy đủ', async () => {
+      extraProducts = [adProduct];
+      await deliver('cho chị xem Váy hoa thiết kế hồng tím');
+      assert.equal(conversation.current_product_id, 13);
     });
     await scenario('Meta gửi lại cùng mid không lưu hay trả lời trùng', async () => {
       const event = { text: 'chị 53kg', mid: 'same-mid' };

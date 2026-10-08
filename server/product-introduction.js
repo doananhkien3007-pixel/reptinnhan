@@ -6,30 +6,31 @@ export const SIZE_QUESTION = 'Dạ chị cho em xin chiều cao + cân nặng, e
 export const normalizeText = (value) => String(value || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
 
+export function getPromotionMessage(product) {
+  const price = Number(product.price);
+  const salePrice = Number(product.sale_price);
+  const hasSale = product.sale_price != null && Number.isFinite(salePrice) && salePrice > 0 && salePrice < price;
+  const money = value => `${value.toLocaleString('vi-VN')}đ`;
+  const parts = [hasSale ? `giá ưu đãi ${money(salePrice)} (giá gốc ${money(price)})` : `giá ${money(price)}`];
+  if (product.shipping_policy?.trim()) parts.push(product.shipping_policy.trim());
+  return `Dạ mẫu ${product.name}: ${parts.join(', ')} ạ.\n\n${product.material?.trim() ? `Chất liệu: ${product.material.trim()}.` : ''}`.trim();
+}
+
 // Only outbound shop messages count as completed introduction steps.
 export function planIntroduction(product, texts, { allowLegacy = false, history = [], receivedText = '' } = {}) {
   const images = [...new Map((product.images || [])
     .filter((item) => item.media_type !== 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0))
-    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 3);
-  if (images.length < 3) throw new Error('Sản phẩm chính cần đủ 3 ảnh Facebook khác nhau.');
+    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 4);
   const videos = [...new Map((product.images || [])
     .filter((item) => item.media_type === 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 1);
-  if (!videos.length) throw new Error('Sản phẩm chính cần ít nhất 1 video có facebook_attachment_id.');
+  const promotionMessage = getPromotionMessage(product);
   const prefix = `Dạ mẫu ${product.name}: `;
   const hasProductImages = texts.some((text) => text.startsWith(`[Ảnh sản phẩm ${product.id}:`));
   const relevant = texts.filter((text) => allowLegacy || text.startsWith(prefix) ||
-    (hasProductImages && [PROMOTION_MESSAGE, SIZE_QUESTION].includes(text)));
-  const normalized = relevant.map(normalizeText).join('\n');
-  const amounts = [...normalized.matchAll(/(\d[\d.,]*)\s*(k|nghin|ngan|d|vnd)(?=\b|\s|[.,!?]|$)/g)]
-    .map((match) => ['k', 'nghin', 'ngan'].includes(match[2])
-      ? Number(match[1].replace(',', '.')) * 1000 : Number(match[1].replace(/[.,]/g, '')));
-  const missing = [];
-  if (!amounts.includes(279000)) missing.push('giá');
-  if (!/(mien phi ship|freeship|free ship)/.test(normalized)) missing.push('ưu đãi MIỄN PHÍ SHIP');
-  if (!normalized.includes('lua mango han quoc')) missing.push('chất vải');
+    (hasProductImages && text === SIZE_QUESTION));
   const questions = [];
   const measurements = getCustomerMeasurements(history, receivedText);
   const questionTexts = relevant.map(normalizeText).filter((text) => /\b(xin|cho em|cho shop|bao nhieu|may)\b|\?/.test(text));
@@ -51,7 +52,7 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
     })).filter(({ marker, legacyMarkers, legacyColorPrefix }) => !texts.includes(marker) &&
       !(allowLegacy && texts.some((text) => legacyMarkers.includes(text) || text.startsWith(legacyColorPrefix)))),
     messages: [
-      missing.length ? PROMOTION_MESSAGE : null,
+      relevant.includes(promotionMessage) ? null : promotionMessage,
       questions.length === 2 ? SIZE_QUESTION : questions.length ? `Dạ chị cho em xin ${questions[0]}, em tư vấn size cho mình ạ.` : null
     ].filter(Boolean)
   };

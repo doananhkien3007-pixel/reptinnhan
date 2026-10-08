@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
-import { planIntroduction, SIZE_QUESTION } from '../server/product-introduction.js';
+import { planIntroduction, SIZE_QUESTION, getPromotionMessage } from '../server/product-introduction.js';
 
-const product = { id: 12, name: 'Váy hoa', size_guide: 'Size XL: 66-75kg', images: [
+const product = { id: 12, name: 'Váy hoa', price: 450000, sale_price: 279000, shipping_policy: 'Freeship', material: 'Lụa Mango Hàn Quốc', size_guide: 'Size XL: 66-75kg', images: [
   ...[1, 2, 3].map(id => ({ facebook_attachment_id: `image-${id}` })),
   { media_type: 'video', facebook_attachment_id: 'video-1' }
 ] };
@@ -35,4 +35,22 @@ test('giới thiệu còn thiếu chỉ hỏi số đo chưa có trong lịch s�
   assert.doesNotMatch(knownHeight.messages.at(-1), /chiều cao/);
   const knownWeight = planIntroduction(product, [], { history: [{ direction: 'inbound', text: '70kg' }] });
   assert.equal(knownWeight.messages.length, 1);
+});
+
+test('mẫu chỉ một ảnh, không video vẫn giới thiệu đúng giá ưu đãi và số đo', () => {
+  const photoOnly = { ...product, images: [product.images[0]] };
+  const plan = planIntroduction(photoOnly, []);
+  assert.equal(plan.images.length, 1);
+  assert.deepEqual(plan.videos, []);
+  assert.match(plan.messages[0], /279\.000đ.*450\.000đ.*Freeship/);
+  assert.equal(plan.messages[1], SIZE_QUESTION);
+  const sent = [plan.images[0].marker, ...plan.messages];
+  assert.deepEqual(planIntroduction(photoOnly, sent), { images: [], videos: [], messages: [] });
+});
+
+test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship của mẫu khác', () => {
+  const regular = { ...product, price: 399000, sale_price: null, shipping_policy: '' };
+  const message = getPromotionMessage(regular);
+  assert.match(message, /399\.000đ/);
+  assert.doesNotMatch(message, /279|ưu đãi|Freeship|Mai/);
 });

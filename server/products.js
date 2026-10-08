@@ -149,7 +149,8 @@ export async function updateConversationProduct(conversationId, productId) {
   return data;
 }
 
-export async function updateConversationAd(conversation, adId) {
+export async function getAdProductId(adId) {
+  if (!adId) return null;
   const supabase = requireSupabase();
   const { data: mapping, error: mappingError } = await supabase
     .from('ad_product_mappings')
@@ -157,7 +158,12 @@ export async function updateConversationAd(conversation, adId) {
     .eq('ad_id', adId)
     .maybeSingle();
   if (mappingError) throw new Error(`Không thể tìm sản phẩm theo Ads ID: ${mappingError.message}`);
-  const productId = mapping?.product_id ?? null;
+  return mapping?.product_id ?? null;
+}
+
+export async function updateConversationAd(conversation, adId) {
+  const supabase = requireSupabase();
+  const productId = await getAdProductId(adId);
   const values = {
     ad_id: adId,
     updated_at: new Date().toISOString()

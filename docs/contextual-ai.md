@@ -4,6 +4,10 @@ Khi `MESSENGER_MODE=contextual_ai`, webhook gọi AI cho mỗi tin mới khi b�
 
 Trong chế độ `introduction_only`, tin có số đo hoặc thông tin nhận hàng không tự kích hoạt video, ảnh hay quảng cáo. Server đọc số đo trong tin mới và tối đa 60 tin lịch sử, chỉ lấy từ khách, ưu tiên số đo sửa mới nhất; hỗ trợ `m59`, `1m59`, `1.59m`, `159cm`, `nang 70` và `70kg`. Đã có cân nặng thì đối chiếu bảng size sản phẩm; ngoài bảng/thiếu bảng thì nói rõ, không chọn size gần nhất. Đã có chiều cao thì không hỏi lại chiều cao. Thông tin nhận hàng chỉ được ghi nhận, không tự coi là chốt đơn; chế độ này không gọi AI hay tự tạo đơn. Các nhu cầu hội thoại khác cần `contextual_ai` để tư vấn tiếp. Bộ giới thiệu khi cần gửi phần còn thiếu cũng bỏ câu hỏi số đo khách đã cung cấp.
 
+Khách từ quảng cáo được chọn mẫu qua `ad_product_mappings` và giữ `current_product_id` cho các lượt tiếp theo. Ads mới đã gắn mẫu sẽ chuyển sang mẫu tương ứng; Ads chưa gắn không xóa mẫu cũ. Nếu referral được lưu trước khi thêm mapping và hội thoại chưa có mẫu, server tra lại Ads ID đã lưu. Khi khách nhắc tên/mã đầy đủ của mẫu khác, server ưu tiên mẫu được nhắc (tên dài nhất nếu tên mẫu này chứa tên mẫu khác).
+
+Bộ giới thiệu gửi tối đa một video nếu có, tối đa bốn ảnh sẵn có, sau đó báo giá từ `sale_price` (khi giảm so với `price`) cùng chính sách vận chuyển/chất liệu của đúng mẫu và hỏi số đo còn thiếu. Không bắt buộc video hoặc đủ ba ảnh. Lời báo giá có tên mẫu để việc đã giới thiệu mẫu cũ không làm bỏ qua giá mẫu mới. Retry chỉ tiếp tục các phần chưa gửi, dựa trên lịch sử đã lưu.
+
 ## Cách hoạt động
 
 - Đọc tối đa 60 tin gần nhất của đúng hội thoại, theo thứ tự thời gian.
