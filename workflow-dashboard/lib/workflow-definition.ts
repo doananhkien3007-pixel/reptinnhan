@@ -33,7 +33,7 @@ export const definitions: Definition[] = [
   { id: 'detect_ad', label: 'Detect Ad', eyebrow: 'ATTRIBUTION', icon: 'scan', position: { x: 630, y: 42 }, sourcePosition: Position.Right, targetPosition: Position.Left },
   { id: 'find_product', label: 'Find Product', eyebrow: 'DATABASE', icon: 'package', position: { x: 930, y: 42 }, sourcePosition: Position.Left, targetPosition: Position.Top },
   { id: 'check_auto_reply', label: 'Check Auto Reply', eyebrow: 'CONTROL', icon: 'toggle', position: { x: 630, y: 274 }, sourcePosition: Position.Left, targetPosition: Position.Right },
-  { id: 'ai_agent', label: 'AI Agent', eyebrow: 'REASONING', icon: 'sparkles', position: { x: 330, y: 274 }, sourcePosition: Position.Left, targetPosition: Position.Right },
+  { id: 'ai_agent', label: 'Product Introduction', eyebrow: 'SCRIPT', icon: 'sparkles', position: { x: 330, y: 274 }, sourcePosition: Position.Left, targetPosition: Position.Right },
   { id: 'business_logic', label: 'Business Logic', eyebrow: 'POLICY', icon: 'braces', position: { x: 30, y: 274 }, sourcePosition: Position.Bottom, targetPosition: Position.Right },
   { id: 'send_messenger', label: 'Send Messenger', eyebrow: 'OUTBOUND', icon: 'send', position: { x: 330, y: 506 }, sourcePosition: Position.Right, targetPosition: Position.Left },
   { id: 'completed', label: 'Completed', eyebrow: 'DONE', icon: 'check', position: { x: 630, y: 506 }, sourcePosition: Position.Right, targetPosition: Position.Left }

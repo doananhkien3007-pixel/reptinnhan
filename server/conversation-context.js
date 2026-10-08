@@ -28,10 +28,10 @@ export function describeProduct(product) {
   })].join('\n');
 }
 
-export async function getReplyContext(conversation, text, { currentMessageSaved = true, persistProduct = true, additionalHistory = [] } = {}) {
+export async function getReplyContext(conversation, text, { currentMessageSaved = true, persistProduct = true, additionalHistory = [], preferLatestAd = false } = {}) {
   const [products, storedHistory, adProductId] = await Promise.all([
     listProducts({ includeInactive: false }), conversation.id ? getRecentConversationMessages(conversation.id, 60) : [],
-    getAdProductId(conversation.current_product_id ? null : conversation.ad_id)
+    getAdProductId(preferLatestAd ? conversation.ad_id : conversation.current_product_id ? null : conversation.ad_id)
   ]);
   // Keep an explicit product switch; recover the ad product when its mapping was added after the referral.
   const simulatedConversation = { ...conversation,
@@ -39,7 +39,9 @@ export async function getReplyContext(conversation, text, { currentMessageSaved 
   for (const message of additionalHistory.filter(item => item.direction === 'inbound')) {
     simulatedConversation.current_product_id = chooseConversationProduct(products, simulatedConversation, message.text)?.id || null;
   }
-  const product = chooseConversationProduct(products, simulatedConversation, text);
+  const product = preferLatestAd
+    ? products.find(item => String(item.id) === String(adProductId)) || null
+    : chooseConversationProduct(products, simulatedConversation, text);
   if (product && persistProduct && String(product.id) !== String(conversation.current_product_id)) {
     await updateConversationProduct(conversation.id, product.id);
   }

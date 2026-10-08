@@ -161,24 +161,47 @@ export async function getAdProductId(adId) {
   return mapping?.product_id ?? null;
 }
 
-export async function updateConversationAd(conversation, adId) {
+export async function updateConversationAd(conversation, adId, { timestamp } = {}) {
   const supabase = requireSupabase();
-  const productId = await getAdProductId(adId);
+  const key = `latest_ad:${conversation.external_user_id}`;
+  const { data: referral, error: referralError } = await supabase.from('app_settings')
+    .select('value').eq('key', key).maybeSingle();
+  if (referralError) throw new Error(`Không thể đọc quảng cáo mới nhất: ${referralError.message}`);
+  const eventTime = Number(timestamp);
+  const hasEventTime = Number.isFinite(eventTime) && eventTime > 0;
+  const stale = hasEventTime && referral?.value?.timestamp > eventTime;
+  const latestAdId = stale ? referral.value.ad_id : adId;
+  // Persist attribution first. If updating the conversation fails, the next
+  // event can recover it without allowing an older referral to replace it.
+  if (!stale) {
+    const { error: timestampError } = await supabase.from('app_settings').upsert({
+      key, value: { ad_id: latestAdId, timestamp: hasEventTime ? eventTime : referral?.value?.timestamp || null },
+      updated_at: new Date().toISOString()
+    });
+    if (timestampError) throw new Error(`Không thể lưu thời điểm quảng cáo mới nhất: ${timestampError.message}`);
+  }
+  const productId = await getAdProductId(latestAdId);
   const values = {
-    ad_id: adId,
+    ad_id: latestAdId,
+    current_product_id: productId,
     updated_at: new Date().toISOString()
   };
-  // Quảng cáo chưa map không được xóa sản phẩm đã tư vấn của cùng khách hàng.
-  if (productId) values.current_product_id = productId;
   const { data: saved, error: saveError } = await supabase.from('conversations')
     .update(values)
     .eq('id', conversation.id)
-    .select('ad_id')
+    .select('*')
     .single();
   if (saveError) throw new Error(`Không thể lưu Ads ID: ${saveError.message}`);
-  if (saved?.ad_id !== adId) throw new Error('Không thể xác nhận Ads ID đã được lưu.');
+  if (saved?.ad_id !== latestAdId) throw new Error('Không thể xác nhận Ads ID đã được lưu.');
+  return { ...conversation, ...saved, ...values };
+}
 
-  return productId;
+export async function syncLatestConversationAd(conversation) {
+  const { data, error } = await requireSupabase().from('app_settings').select('value')
+    .eq('key', `latest_ad:${conversation.external_user_id}`).maybeSingle();
+  if (error) throw new Error(`Không thể đọc quảng cáo mới nhất: ${error.message}`);
+  if (!data?.value?.ad_id || data.value.ad_id === conversation.ad_id) return conversation;
+  return updateConversationAd(conversation, data.value.ad_id, { timestamp: data.value.timestamp });
 }
 
 export async function findMentionedProduct(message) {

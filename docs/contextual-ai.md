@@ -1,44 +1,49 @@
-# Trả lời khách theo ngữ cảnh
+# Kịch bản giới thiệu và bàn giao cho nhân viên
 
-Khi `MESSENGER_MODE=contextual_ai`, webhook gọi AI cho mỗi tin mới khi bật trả lời tự động. Mặc định là `introduction_only`: gửi bộ giới thiệu một lần, nhưng ưu tiên xử lý số đo/thông tin nhận hàng trước kịch bản này.
+Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có → giá/ưu đãi → xin cân nặng và chiều cao**. Bot không gọi AI để tư vấn size và không tự tạo đơn. Biến `MESSENGER_MODE` cũ không thay đổi luồng này, kể cả khi đặt `contextual_ai`.
 
-Trong chế độ `introduction_only`, tin có số đo hoặc thông tin nhận hàng không tự kích hoạt video, ảnh hay quảng cáo. Server đọc số đo trong tin mới và tối đa 60 tin lịch sử, chỉ lấy từ khách, ưu tiên số đo sửa mới nhất; hỗ trợ `m59`, `1m59`, `1.59m`, `159cm`, `nang 70` và `70kg`. Đã có cân nặng thì đối chiếu bảng size sản phẩm; ngoài bảng/thiếu bảng thì nói rõ, không chọn size gần nhất. Đã có chiều cao thì không hỏi lại chiều cao. Thông tin nhận hàng chỉ được ghi nhận, không tự coi là chốt đơn; chế độ này không gọi AI hay tự tạo đơn. Các nhu cầu hội thoại khác cần `contextual_ai` để tư vấn tiếp. Bộ giới thiệu khi cần gửi phần còn thiếu cũng bỏ câu hỏi số đo khách đã cung cấp.
+## Chọn sản phẩm theo quảng cáo mới nhất
 
-Khách từ quảng cáo được chọn mẫu qua `ad_product_mappings` và giữ `current_product_id` cho các lượt tiếp theo. Ads mới đã gắn mẫu sẽ chuyển sang mẫu tương ứng; Ads chưa gắn không xóa mẫu cũ. Nếu referral được lưu trước khi thêm mapping và hội thoại chưa có mẫu, server tra lại Ads ID đã lưu. Khi khách nhắc tên/mã đầy đủ của mẫu khác, server ưu tiên mẫu được nhắc (tên dài nhất nếu tên mẫu này chứa tên mẫu khác).
+- Đọc Ads ID từ referral trong event, message, postback hoặc optin; lưu vào hội thoại kể cả sự kiện referral không có tin nhắn.
+- Dùng timestamp của sự kiện để tránh referral cũ đến muộn ghi đè Ads mới. Khi Meta không gửi timestamp, dùng thứ tự tiếp nhận.
+- Khi có Ads ID, chỉ chọn sản phẩm đang bán đã gắn với Ads đó trong `ad_product_mappings`. Tên/mã mẫu cũ trong tin khách không ghi đè sản phẩm của Ads mới nhất.
+- Ads mới chưa gắn mẫu: bot không gửi tin và không dùng mẫu của Ads trước. Sau khi thêm mapping, tin tiếp theo sẽ tra lại mapping.
+- Chưa có Ads ID hoặc mapping hợp lệ thì Messenger giữ im lặng; không đoán mẫu dù chỉ có một sản phẩm.
 
-Bộ giới thiệu gửi tối đa một video nếu có, tối đa bốn ảnh sẵn có, sau đó báo giá từ `sale_price` (khi giảm so với `price`) cùng chính sách vận chuyển/chất liệu của đúng mẫu và hỏi số đo còn thiếu. Không bắt buộc video hoặc đủ ba ảnh. Lời báo giá có tên mẫu để việc đã giới thiệu mẫu cũ không làm bỏ qua giá mẫu mới. Retry chỉ tiếp tục các phần chưa gửi, dựa trên lịch sử đã lưu.
+## Bộ giới thiệu
 
-## Cách hoạt động
+Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Tiếp theo là giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Không tự thêm freeship hay thời hạn ưu đãi. Cuối cùng xin chiều cao và cân nặng.
 
-- Đọc tối đa 60 tin gần nhất của đúng hội thoại, theo thứ tự thời gian.
-- Ưu tiên tên/mã sản phẩm khách nhắc rõ; nếu chưa nhắc thì dùng sản phẩm đã gắn với hội thoại/Ads. Chỉ tự chọn khi còn đúng một sản phẩm đang bán. Nhiều mẫu chưa xác định thì hỏi lại.
-- Dùng giá, màu, chất liệu và bảng size từ database. Chưa có dữ liệu tồn kho/ưu đãi/vận chuyển thì yêu cầu AI không tự khẳng định.
-- AI trả về ý định, nội dung trả lời và danh sách media. Server xác thực schema, giới hạn 2.000 ký tự, kiểm tra ID ảnh/video thuộc sản phẩm. Chỉ gửi media với ý định xem ảnh/video.
-- Luồng tự tạo đơn mặc định xử lý cả khi tắt gửi trả lời: AI vẫn gom dữ liệu đã lưu trong Supabase nhưng không nhắn khách. Đặt `AUTO_ORDERS_ENABLED=false` để tạm dừng hoàn toàn; xem [Quản lý đơn](order-management.md).
-- Ảnh khách gửi hiện được nhận như thông báo có tệp; chưa có phân tích hình ảnh.
+## Trạng thái theo UID khách + sản phẩm
 
-## Kiểm tra trên web
+Luồng chính: webhook nhận tin → lấy Ads ID mới nhất của đúng khách/hội thoại → mapping ra sản phẩm → đọc trạng thái `product_intro:<UID khách>:<ID sản phẩm>` trong `app_settings`.
 
-Chọn khách → **Cấu hình trợ lý AI** → **Thử cách AI trả lời**. Nhập một tin ví dụ và bấm **Thử phản hồi**. Dùng hướng dẫn đã lưu; trả về ý định, sản phẩm, nội dung và số media dự kiến. Không gửi Messenger, không sửa hội thoại hay sản phẩm của khách.
+- Chưa có trạng thái: gửi bộ giới thiệu, lưu tiến trình từng phần. Gửi đủ bộ mới đánh dấu `introduced`.
+- Đã `introduced`: bot im lặng để Human tư vấn tiếp. Trạng thái không hết hạn sau vài giờ và không phụ thuộc Ads ID. Hai Ads cùng mẫu không tạo hai bộ giới thiệu.
+- Cùng khách chuyển từ mẫu A sang mẫu B: B có trạng thái riêng. Nếu quay lại mẫu A đã giới thiệu thì không gửi lại A.
+- Hai khách cùng quan tâm một mẫu: mỗi khách có trạng thái riêng, không ảnh hưởng nhau.
+- Gửi lỗi giữa chừng: trạng thái `sending`, tiếp tục những bước chưa gửi. Danh sách hành động và số bước đã gửi được lưu bền, không dùng bộ nhớ process.
 
-Khung thử nhớ tối đa 10 lượt trong phiên trang hiện tại, bao gồm số đo, lựa chọn và sản phẩm đã nhắc. Bấm **Bắt đầu lại**, chuyển khách hoặc tải lại trang sẽ xóa các lượt thử. Lịch sử thử chỉ dùng làm ngữ cảnh và không ghi vào database.
+Với khách cũ chưa có trạng thái mới, server đọc lịch sử đã lưu một lần để nhận biết bộ giới thiệu đã hoàn tất hoặc tiếp tục phần còn thiếu. Sau đó dùng trạng thái riêng theo UID + ID sản phẩm. Đổi giá, tên hoặc media không tự mở lại trạng thái đã giới thiệu.
 
-Bot được hướng dẫn đưa đề xuất cụ thể, không tự thêm câu “chị có muốn xem hình/tư vấn thêm không”. Chỉ hỏi một thông tin thực sự còn thiếu để giải quyết nhu cầu hiện tại, không xin thông tin đặt hàng khi khách mới hỏi size. Lớp lọc cuối loại câu mời chung chung hoặc câu hỏi cuối lặp nguyên văn trong các phản hồi gần đây khi vẫn còn phần trả lời có nghĩa. Lớp lọc này không bảo đảm phát hiện mọi cách diễn đạt lặp; chất lượng tư vấn vẫn cần kiểm tra với model thật.
+Khách gửi cân nặng/chiều cao hoặc thông tin nhận hàng trước khi gửi hết bộ giới thiệu cũng được nhường cho nhân viên: trạng thái `human_handoff` **của đúng khách + sản phẩm**. Số đo của mẫu A và khóa bàn giao toàn khách cũ không chặn giới thiệu mẫu B. Sau khi đã giới thiệu, bot im lặng ngay, không cần đợi khách trả lời số đo. Tin khách vẫn được lưu và hiện trong hộp thư.
 
-API thử: `POST /api/webhook?action=preview_reply`, body `{ "message": "chị 53kg mặc size gì", "sender_id": "PSID đã có" }`. Bỏ `sender_id` để thử không có lịch sử khách.
+## Human reset
 
-## Cấu hình triển khai
+Chọn khách → **Cấu hình trợ lý AI** → nhập mã quản trị dùng chung với trang Đơn hàng → **Reset mẫu đang tư vấn cho khách đã chọn**. Reset chỉ mở lại trạng thái của khách và sản phẩm gắn với Ads mới nhất. Không ảnh hưởng khách khác hoặc sản phẩm khác, không gửi Messenger ngay. Tin mới tiếp theo sẽ nhận đủ bộ giới thiệu, bỏ qua dấu đã gửi trước lần reset.
 
-Giữ các biến hiện tại: `OPENAI_API_KEY`, `OPENAI_MODEL`, `PAGE_ACCESS_TOKEN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`. Không đổi model đã cấu hình. Bật công tắc Trợ lý tự động trên web sau khi kiểm tra phản hồi phù hợp. Luồng tư vấn không cần thêm migration; tính năng tự tạo đơn cần schema và cấu hình trong [Quản lý đơn](order-management.md). Không thêm Serverless Function.
+API: `POST /api/webhook?action=reset_introduction`, header `Authorization: Bearer <ORDERS_ADMIN_TOKEN>`, body `{ "sender_id": "PSID", "product_id": 123 }`. `product_id` tùy chọn giúp phát hiện mẫu đã đổi trước khi reset. Mã quản trị phải có ít nhất 24 ký tự. Reset dùng cùng khóa theo khách với webhook, nên không chạy đồng thời với lượt đang gửi; retry của lượt cũ không mở lại bộ mới sau reset.
 
-## Tin trùng, lỗi và giới hạn
+## Khung thử phản hồi
 
-Sử dụng `app_settings` hiện có để khóa từng khách và lưu checkpoint theo Facebook message ID. Sự kiện đã hoàn tất được bỏ qua khi Meta gửi lại. Khi khách đang được xử lý hoặc API lỗi, webhook trả HTTP 503 để Meta có thể thử lại. Kế hoạch và bước gửi thành công được lưu để retry tiếp phần còn lại; không gọi lại AI cho kế hoạch đã tạo.
+**Cấu hình trợ lý AI → Thử kịch bản giới thiệu** chạy đúng kịch bản Messenger, không gọi AI. Kết quả thể hiện số ảnh/video, nội dung báo giá/xin số đo, hoặc bot không gửi tin để nhân viên xử lý. Các trường hướng dẫn AI và nút kiểm tra kết nối AI còn được giữ cho công cụ kiểm tra; chúng không điều khiển kịch bản Messenger.
 
-Đây là xử lý có retry, không bảo đảm exactly-once: nếu Facebook đã nhận tin nhưng kết nối bị ngắt trước khi server ghi checkpoint thì vẫn có khả năng gửi lặp. Sự kiện thiếu cả message ID và timestamp không thể chống trùng ổn định. Khóa hết hạn sau 5 phút nếu tiến trình bị dừng. Chưa có worker/queue riêng; thời gian thực thi vẫn phụ thuộc giới hạn của host. Các khóa `ai_turn:*` được giữ lại để chống trùng và cần chính sách dọn dẹp khi lưu lượng tăng.
+`POST /api/webhook?action=preview_reply`, body `{ "message": "chị 53kg", "sender_id": "PSID đã có" }`. Bỏ `sender_id` để thử không có lịch sử khách. Khung thử nhớ tối đa 10 lượt trong phiên trang, không gửi Messenger, không ghi tin hoặc trạng thái bàn giao vào database.
 
-## Xác minh
+## Retry và cấu hình
 
-Chạy `npm test`. Kiểm thử mô phỏng kiểm tra lịch sử, chọn đúng mẫu, trả lời tiếp sau lời chào cũ, allowlist media, output lỗi, tắt bot, retry, trùng message ID và chế độ xem trước. Các kiểm thử này xác minh luồng tích hợp, không đo chất lượng hiểu tiếng Việt của model thực tế.
+Giữ `PAGE_ACCESS_TOKEN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` và cấu hình xác minh webhook hiện có. Không cần migration hoặc Serverless Function mới: khóa khách, trạng thái khách + sản phẩm và thời điểm referral dùng bảng `app_settings` sẵn có.
 
-API phản hồi theo [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+Sự kiện được khóa theo khách và chống trùng theo Facebook message ID. Lỗi đọc/lưu dữ liệu hoặc gửi tin trả HTTP 503 để Meta thử lại. Retry tiếp các phần chưa gửi, không tiếp tục kế hoạch hội thoại AI cũ. Vẫn có khả năng gửi lặp nếu Facebook đã nhận tin nhưng tiến trình dừng trước khi lưu dấu gửi thành công; không bảo đảm exactly-once.
+
+Chạy `npm test` để kiểm tra giới thiệu, chọn Ads mới, referral đến muộn, Ads chưa mapping, trạng thái theo khách + sản phẩm, quick reply sau nhiều giờ, Human reset, retry, tin trùng, tắt bot và preview. Các kiểm thử webhook dùng API mô phỏng, không gửi tin cho khách thật.

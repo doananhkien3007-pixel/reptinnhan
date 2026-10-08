@@ -1,5 +1,6 @@
 // api/webhook.js
 import { generateReply } from '../server/ai-reply.js';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { withTypingDelay } from '../server/messenger-typing.js';
 import { getSupabase } from '../server/supabase.js';
@@ -8,17 +9,19 @@ import { beginCustomerTurn, checkpointTurn, endCustomerTurn } from '../server/cu
 import { getAdReferral } from '../server/ad-referral.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
 import { syncFacebookProfile } from '../server/facebook-profile.js';
-import { ordersEnabled, readCheckout, readOrderEvent, commitCheckout } from '../server/orders.js';
-import { hasExplicitPurchaseIntent } from '../server/order-checkout.js';
 import { readWebhookBody } from '../server/webhook-body.js';
 import { planIntroduction } from '../server/product-introduction.js';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
+import { readIntroductionState, saveIntroductionState } from '../server/product-introduction-state.js';
+import { authorizeOrders } from '../server/orders.js';
+import { acquireWelcomeClaim, releaseWelcomeClaim } from '../server/welcome-claim.js';
 export const config = { api: { bodyParser: false } };
 import {
   getAllSentTexts,
   getOrCreateConversation,
   saveConversationMessage,
-  updateConversationAd
+  updateConversationAd,
+  syncLatestConversationAd
 } from '../server/products.js';
 
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
@@ -317,68 +320,30 @@ async function waitBetweenReplies(min = 800, max = 1800) {
   if (delay) await sleep(delay);
 }
 
-async function analyzeCustomerTurn(conversation, receivedText, turn, context) {
-  const enabled = ordersEnabled();
-  const cached = enabled ? await readOrderEvent(turn.key) : null;
-  let checkout = enabled && !cached ? await readCheckout(conversation.id) : null;
-  if (checkout && !checkout.state?.confirmed && hasExplicitPurchaseIntent(context.history)) {
-    checkout = { ...checkout, state: { ...checkout.state, confirmed: true, recovered_from_history: true } };
-  }
-  let result = cached ? { intent: cached.intent || 'order', reply: cached.reply, media_ids: cached.media_ids || [] } : await generateOpenAIReply(receivedText, {
-    ...context, checkoutEnabled: enabled, checkoutState: checkout?.state || {}
-  });
-  if (enabled && !cached) {
-    const saved = await commitCheckout({ eventKey: turn.key, checkout, extraction: result.checkout, conversation, context, text: receivedText, reply: result.reply, intent: result.intent, media_ids: result.media_ids });
-    result = { ...result, reply: saved.reply, ...(saved.handled ? { intent: 'order', media_ids: [] } : {}) };
-  }
-  return result;
-}
-
-async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context) {
-  const introductionOnly = process.env.MESSENGER_MODE !== 'contextual_ai';
-  await trace.nodeStarted('ai_agent', {
-    mode: introductionOnly ? 'introduction_only' : 'contextual_ai',
-    history_count: context.history.length
-  });
-  let plan = turn.value.plan;
-  const followup = introductionOnly ? getIntroductionFollowup(context.product, context.history, receivedText) : null;
-  if (followup) {
-    if (!plan) {
-      plan = { intent: followup.intent, actions: followup.reply ? [{ type: 'text', text: followup.reply }] : [] };
-      await checkpointTurn(turn, { plan, sent_count: 0 });
-    }
-  } else if (introductionOnly) {
-    if (!context.product) throw new Error('Chưa xác định được sản phẩm đang hoạt động để giới thiệu.');
-    // Rebuild from durable outbound markers on every retry. This prevents a
-    // successful Facebook send from being repeated if its checkpoint failed.
-    const sentTexts = await getAllSentTexts(recipientId);
-    const introduction = planIntroduction(context.product, sentTexts, { history: context.history, receivedText });
+async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context, state) {
+  await trace.nodeStarted('ai_agent', { mode: 'introduction_only', history_count: context.history.length });
+  if (!state || state.status === 'pending') {
+    // Import existing customers once. A Human reset deliberately starts fresh.
+    const sentTexts = state ? [] : await getAllSentTexts(recipientId);
+    const introduction = planIntroduction(context.product, sentTexts);
     const actions = [
-      ...introduction.videos.map(({ video, marker }) => ({ type: 'media', media: video, marker })),
       ...introduction.images.map(({ image, marker }) => ({ type: 'media', media: image, marker })),
+      ...introduction.videos.map(({ video, marker }) => ({ type: 'media', media: video, marker })),
       ...introduction.messages.map((text) => ({ type: 'text', text }))
     ];
-    plan = { intent: 'product_introduction', actions };
-    await checkpointTurn(turn, { plan, sent_count: 0 });
-  } else if (!plan) {
-    const result = await analyzeCustomerTurn(conversation, receivedText, turn, context);
-    const actions = [{ type: 'text', text: result.reply }];
-    for (const id of result.media_ids) {
-      const media = context.media.find(item => String(item.facebook_attachment_id).trim() === id);
-      const type = media.media_type === 'video' ? 'Video' : 'Ảnh';
-      actions.push({ type: 'media', media, marker: `[${type} sản phẩm ${context.product.id}:${id}]` });
-    }
-    plan = { intent: result.intent, actions };
-    await checkpointTurn(turn, { plan, sent_count: 0 });
+    state = { version: state?.version || randomUUID(), status: actions.length ? 'sending' : 'introduced', actions, sent_count: 0 };
+    await saveIntroductionState(recipientId, context.product.id, state);
   }
+  const plan = { intent: 'product_introduction', actions: state.actions || [] };
+  await checkpointTurn(turn, { introduction_version: state.version, plan, sent_count: state.sent_count });
   await trace.nodeCompleted('ai_agent', { intent: plan.intent });
   await trace.edgeTransfer('ai_agent', 'business_logic');
   await trace.nodeStarted('business_logic');
   await trace.nodeCompleted('business_logic', { intent: plan.intent, action_count: plan.actions.length });
   await trace.edgeTransfer('business_logic', 'send_messenger');
   await trace.nodeStarted('send_messenger');
-  for (let index = turn.value.sent_count || 0; index < plan.actions.length; index++) {
-    // An operator can pause the bot while an AI request is in flight.
+  for (let index = state.sent_count || 0; index < plan.actions.length; index++) {
+    // An operator can pause the bot while the introduction is being sent.
     if (!await readAutoReplyEnabled()) {
       addTaskLog('Auto-reply', 'Dừng lượt đang xử lý vì người quản trị đã tắt bot');
       break;
@@ -387,6 +352,9 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     const action = plan.actions[index];
     if (action.type === 'text') await sendMessengerMessage(recipientId, action.text, conversation.id);
     else await sendMessengerMedia(recipientId, action.media, conversation.id, action.marker);
+    state = { ...state, sent_count: index + 1,
+      status: index + 1 === plan.actions.length ? 'introduced' : 'sending' };
+    await saveIntroductionState(recipientId, context.product.id, state);
     await checkpointTurn(turn, { sent_count: index + 1 });
   }
   await trace.nodeCompleted('send_messenger', { action_count: turn.value.sent_count || 0 });
@@ -396,22 +364,6 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
   await trace.complete({ intent: plan.intent, product_id: context.product?.id || null });
 }
 
-async function captureOrderSilently(conversation, receivedText, trace, turn, context) {
-  await trace.nodeStarted('ai_agent', { mode: 'order_capture', history_count: context.history.length });
-  const result = await analyzeCustomerTurn(conversation, receivedText, turn, context);
-  await trace.nodeCompleted('ai_agent', { intent: result.intent, outbound: false });
-  await trace.edgeTransfer('ai_agent', 'business_logic');
-  await trace.nodeStarted('business_logic');
-  await trace.nodeCompleted('business_logic', { intent: result.intent, order_capture: true });
-  await trace.edgeTransfer('business_logic', 'send_messenger', { skipped: true });
-  await trace.nodeStarted('send_messenger', { skipped: true });
-  await trace.nodeCompleted('send_messenger', { skipped: true });
-  await trace.edgeTransfer('send_messenger', 'completed');
-  await trace.nodeStarted('completed');
-  await trace.nodeCompleted('completed');
-  await trace.complete({ intent: result.intent, product_id: context.product?.id || null, outbound: false });
-}
-
 async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
   const senderPsid = webhookEvent.sender?.id;
   if (!senderPsid || webhookEvent.message?.is_echo) return;
@@ -419,13 +371,7 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
     || (webhookEvent.message?.attachments?.length ? '[Khách gửi ảnh hoặc tệp]' : null)
     || (webhookEvent.postback ? webhookEvent.postback.title || webhookEvent.postback.payload || '[Khách bấm nút]' : null);
   const { adId, location } = getAdReferral(webhookEvent);
-  if (channel === 'standby' || !receivedText) {
-    if (adId) {
-      const conversation = await getOrCreateConversation(senderPsid);
-      await updateConversationAd(conversation, adId);
-    }
-    return;
-  }
+  if ((channel === 'standby' || !receivedText) && !adId) return;
 
   let turn;
   let trace;
@@ -433,6 +379,12 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
   try {
     turn = await beginCustomerTurn(senderPsid, webhookEvent);
     if (turn.value.complete) return;
+    if (channel === 'standby' || !receivedText) {
+      const conversation = await getOrCreateConversation(senderPsid);
+      await updateConversationAd(conversation, adId, { timestamp: webhookEvent.timestamp });
+      await checkpointTurn(turn, { complete: true });
+      return;
+    }
     trace = await createWorkflowTrace({ customerId: senderPsid, message: receivedText, adId });
     await trace.nodeStarted('facebook_webhook');
     await trace.nodeCompleted('facebook_webhook');
@@ -445,10 +397,9 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
     await trace.nodeStarted(stage);
     let conversation = await getOrCreateConversation(senderPsid);
     if (adId) {
-      const productId = await updateConversationAd(conversation, adId);
-      conversation = { ...conversation, ad_id: adId, current_product_id: productId || conversation.current_product_id };
-      addTaskLog('Ads', `Khách ${senderPsid}: ${adId} từ ${location}`);
-    }
+      conversation = await updateConversationAd(conversation, adId, { timestamp: webhookEvent.timestamp });
+      addTaskLog('Ads', `Khách ${senderPsid}: Ads mới nhất ${conversation.ad_id} (referral ${adId} từ ${location})`);
+    } else conversation = await syncLatestConversationAd(conversation);
     await trace.nodeCompleted(stage, { ad_id: conversation.ad_id || null });
     await trace.edgeTransfer('detect_ad', 'find_product');
     stage = 'find_product';
@@ -462,33 +413,36 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
       if (global.messages.length > 200) global.messages.shift();
       addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);
     }
-    const introductionOnly = process.env.MESSENGER_MODE !== 'contextual_ai';
-    const captureOrders = !introductionOnly && ordersEnabled();
-    const context = autoReplyEnabled || captureOrders ? await getReplyContext(conversation, receivedText) : null;
-    await trace.patch({ product_id: context?.product?.id || null, product_name: context?.product?.name || null });
+    const context = await getReplyContext(conversation, receivedText, { preferLatestAd: true });
+    let introductionState = context.product ? await readIntroductionState(senderPsid, context.product.id) : null;
+    const alreadyIntroduced = introductionState?.status === 'introduced';
+    const staleTurn = turn.value.introduction_version && introductionState?.version !== turn.value.introduction_version;
+    if (context.product && !staleTurn && !alreadyIntroduced && introductionState?.status !== 'human_handoff' &&
+        getIntroductionFollowup(context.product, [], receivedText)) {
+      introductionState = { ...introductionState, status: 'human_handoff', version: introductionState?.version || randomUUID() };
+      await saveIntroductionState(senderPsid, context.product.id, introductionState);
+      addTaskLog('Human', `Khách ${senderPsid} gửi số đo/thông tin nhận hàng cho mẫu ${context.product.id}, nhường nhân viên`);
+    }
+    await trace.patch({ ad_id: conversation.ad_id || null, product_id: context?.product?.id || null, product_name: context?.product?.name || null });
     await trace.nodeCompleted(stage, { product_id: context?.product?.id || null });
     await trace.edgeTransfer('find_product', 'check_auto_reply');
     stage = 'check_auto_reply';
     await trace.nodeStarted(stage);
-    await trace.nodeCompleted(stage, { enabled: autoReplyEnabled });
-    if (autoReplyEnabled) {
+    const reason = alreadyIntroduced ? 'already_introduced' : introductionState?.status === 'human_handoff' ? 'human_handoff'
+      : !autoReplyEnabled ? 'auto_reply_disabled' : !context.product ? 'product_not_mapped' : staleTurn ? 'introduction_reset' : null;
+    await trace.nodeCompleted(stage, { enabled: autoReplyEnabled, reason });
+    if (!reason) {
       await trace.edgeTransfer('check_auto_reply', 'ai_agent');
       stage = 'ai_agent';
-      // Report send failures at the actual active node in the wrapper below.
       const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
-      await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context);
-    } else if (captureOrders) {
-      await trace.edgeTransfer('check_auto_reply', 'ai_agent', { order_capture: true });
-      stage = 'ai_agent';
-      const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
-      await captureOrderSilently(conversation, receivedText, trackedTrace, turn, context);
+      await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context, introductionState);
     } else {
       for (const [previous, node] of [['check_auto_reply', 'ai_agent'], ['ai_agent', 'business_logic'], ['business_logic', 'send_messenger'], ['send_messenger', 'completed']]) {
-        await trace.edgeTransfer(previous, node, { skipped: true });
-        await trace.nodeStarted(node, { skipped: true });
-        await trace.nodeCompleted(node, { skipped: true });
+        await trace.edgeTransfer(previous, node, { skipped: true, reason });
+        await trace.nodeStarted(node, { skipped: true, reason });
+        await trace.nodeCompleted(node, { skipped: true, reason });
       }
-      await trace.complete({ reason: 'auto_reply_disabled' });
+      await trace.complete({ reason });
     }
     await checkpointTurn(turn, { complete: true });
   } catch (error) {
@@ -502,9 +456,8 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
 export default async function handler(req, res) {
   if (req.method === 'POST') {
     try {
-      const managementAction = ['preview_reply', 'toggle_auto_reply', 'set_system_prompt'].includes(req.query.action);
-      // Verify whenever the Meta App Secret is configured. Order capture itself
-      // consumes the message after it has been persisted and does not require it.
+      const managementAction = ['preview_reply', 'toggle_auto_reply', 'set_system_prompt', 'reset_introduction'].includes(req.query.action);
+      // Management actions use the web UI; Meta events use the webhook signature.
       await readWebhookBody(req, Boolean(process.env.FB_APP_SECRET) && !managementAction);
     } catch {
       return res.status(400).send('Invalid webhook payload or signature');
@@ -579,6 +532,34 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const action = req.query['action'];
 
+    if (action === 'reset_introduction') {
+      if (!authorizeOrders(req, res)) return;
+      const senderId = typeof req.body?.sender_id === 'string' ? req.body.sender_id.trim() : '';
+      if (!senderId || senderId.length > 100) return res.status(400).json({ error: 'Chọn khách cần reset.' });
+      let lock;
+      try {
+        lock = await acquireWelcomeClaim(senderId, 'ai_conversation', { reopenComplete: true });
+        if (!lock) return res.status(409).json({ error: 'Khách đang được xử lý, thử reset lại sau.' });
+        const { data, error } = await getSupabase().from('conversations').select('*')
+          .eq('channel', 'facebook').eq('external_user_id', senderId).maybeSingle();
+        if (error) throw new Error('Không tải được hội thoại.');
+        if (!data) return res.status(404).json({ error: 'Không tìm thấy khách.' });
+        const conversation = await syncLatestConversationAd(data);
+        const context = await getReplyContext(conversation, '', { persistProduct: false, preferLatestAd: true });
+        if (!context.product) return res.status(400).json({ error: 'Chưa xác định sản phẩm của quảng cáo gần nhất.' });
+        if (req.body.product_id != null && String(req.body.product_id) !== String(context.product.id)) {
+          return res.status(409).json({ error: 'Khách đã chuyển sang mẫu khác. Tải lại trước khi reset.' });
+        }
+        await saveIntroductionState(senderId, context.product.id, { status: 'pending', version: randomUUID() });
+        addTaskLog('Human', `Reset giới thiệu: khách ${senderId}, mẫu ${context.product.id}`);
+        return res.status(200).json({ reset: true, sender_id: senderId, product_id: context.product.id, product_name: context.product.name });
+      } catch (error) {
+        return res.status(503).json({ error: error.message });
+      } finally {
+        if (lock) await releaseWelcomeClaim(lock);
+      }
+    }
+
     if (action === 'preview_reply') {
       const text = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
       const senderId = typeof req.body?.sender_id === 'string' ? req.body.sender_id.trim() : '';
@@ -604,10 +585,30 @@ export default async function handler(req, res) {
         }
         const context = await getReplyContext(conversation, text, {
           currentMessageSaved: false, persistProduct: false,
-          additionalHistory: previewHistory.map(message => ({ direction: message.direction, text: message.text }))
+          additionalHistory: previewHistory.map(message => ({ direction: message.direction, text: message.text })), preferLatestAd: Boolean(conversation.ad_id)
         });
-        const result = await generateReply(text, { ...context, systemPrompt: global.openaiSystemPrompt });
-        return res.status(200).json({ ...result, product_name: context.product?.name || null, history_count: context.history.length });
+        const state = senderId && context.product ? await readIntroductionState(senderId, context.product.id) : null;
+        const alreadyIntroduced = state?.status === 'introduced';
+        const handedOff = state?.status === 'human_handoff' || Boolean(getIntroductionFollowup(context.product, previewHistory, text));
+        const sentTexts = [...(senderId && !state ? await getAllSentTexts(senderId) : []), ...previewHistory.filter(item => item.direction === 'outbound').flatMap(item => item.text.split('\n\n'))];
+        const remaining = state?.status === 'sending' ? state.actions.slice(state.sent_count || 0) : null;
+        const introduction = !handedOff && !alreadyIntroduced && context.product
+          ? remaining ? {
+            images: remaining.filter(item => item.type === 'media' && item.media.media_type !== 'video').map(item => ({ image: item.media, marker: item.marker })),
+            videos: remaining.filter(item => item.type === 'media' && item.media.media_type === 'video').map(item => ({ video: item.media, marker: item.marker })),
+            messages: remaining.filter(item => item.type === 'text').map(item => item.text)
+          } : planIntroduction(context.product, sentTexts) : null;
+        const result = {
+          intent: alreadyIntroduced ? 'already_introduced' : handedOff ? 'human_handoff' : introduction ? 'product_introduction' : 'awaiting_product',
+          reply: introduction?.messages.join('\n\n') || '',
+          media_ids: [...(introduction?.images.map(item => String(item.image.facebook_attachment_id).trim()) || []), ...(introduction?.videos.map(item => String(item.video.facebook_attachment_id).trim()) || [])],
+          media_markers: [...(introduction?.images.map(item => item.marker) || []), ...(introduction?.videos.map(item => item.marker) || [])],
+          image_count: introduction?.images.length || 0,
+          video_count: introduction?.videos.length || 0,
+          messages: introduction?.messages || [],
+          skipped: !introduction || (!introduction.images.length && !introduction.videos.length && !introduction.messages.length)
+        };
+        return res.status(200).json({ ...result, product_id: context.product?.id || null, product_name: context.product?.name || null, history_count: context.history.length });
       } catch (error) {
         return res.status(502).json({ error: error.message });
       }

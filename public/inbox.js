@@ -233,10 +233,10 @@ async function fetchMessages() {
 
 function updateReplyControl() {
   $('reply-status').textContent = autoReplyEnabled ? 'Đang hoạt động' : 'Đã tạm dừng';
-  $('reply-description').textContent = autoReplyEnabled ? 'Tự động chăm sóc khách hàng' : 'Đã tắt trả lời tự động';
+  $('reply-description').textContent = autoReplyEnabled ? 'Gửi hình/video, giá và xin số đo' : 'Đã tắt trả lời tự động';
   $('reply-toggle').setAttribute('aria-checked', String(autoReplyEnabled));
   $('reply-toggle').setAttribute('aria-label', autoReplyEnabled ? 'Tắt trả lời tự động' : 'Bật trả lời tự động');
-  $('chat-ai-status').textContent = autoReplyEnabled ? 'Trợ lý AI đang được bật' : 'Trợ lý AI đang tạm dừng';
+  $('chat-ai-status').textContent = autoReplyEnabled ? 'Bot giới thiệu đang bật · Nhận số đo thì nhường nhân viên' : 'Bot giới thiệu đang tạm dừng';
 }
 
 async function loadReplyStatus() {
@@ -303,15 +303,17 @@ $('preview-reply').addEventListener('click', async () => {
   const version = previewVersion;
   $('preview-reply').disabled = true;
   $('preview-reset').disabled = true;
-  result.textContent = 'AI đang đọc ngữ cảnh và soạn trả lời…';
+  result.textContent = 'Đang kiểm tra kịch bản giới thiệu…';
   try {
     const data = await api('preview_reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, sender_id: previewSenderId, preview_history: previewHistory }) });
     if (version !== previewVersion) return;
-    previewHistory = [...previewHistory, { direction: 'inbound', text: message }, { direction: 'outbound', text: data.reply }].slice(-20);
+    const previewOutbound = [...(data.media_markers || []), ...(data.messages || [data.reply])].filter(Boolean).join('\n\n') || '[Bot không gửi tin]';
+    previewHistory = [...previewHistory, { direction: 'inbound', text: message }, { direction: 'outbound', text: previewOutbound }].slice(-20);
     $('preview-memory').textContent = 'Đang nhớ ' + previewHistory.length / 2 + ' lượt thử. Nhập tin tiếp theo để tiếp tục hội thoại.';
     if ($('preview-message').value.trim() === message) $('preview-message').value = '';
-    const intents = { greeting: 'Chào hỏi', price: 'Hỏi giá', size: 'Tư vấn size', color: 'Chọn màu', product_info: 'Thông tin sản phẩm', media: 'Xem ảnh/video', order: 'Đặt hàng', shipping: 'Giao hàng', complaint: 'Góp ý / khiếu nại', thanks: 'Cảm ơn', other: 'Trao đổi khác' };
-    result.textContent = 'AI hiểu: ' + (intents[data.intent] || 'Trao đổi') + (data.product_name ? ' · ' + data.product_name : '') + '\n\n' + data.reply + (data.media_ids?.length ? '\n\nDự kiến gửi kèm ' + data.media_ids.length + ' ảnh/video.' : '');
+    const intents = { product_introduction: 'Giới thiệu sản phẩm', already_introduced: 'Mẫu đã giới thiệu · Nhân viên tiếp tục xử lý', human_handoff: 'Nhân viên tiếp tục xử lý', awaiting_product: 'Chưa xác định mẫu của quảng cáo' };
+    const mediaDescription = [data.image_count ? data.image_count + ' ảnh' : '', data.video_count ? data.video_count + ' video' : ''].filter(Boolean).join(' + ');
+    result.textContent = (intents[data.intent] || 'Giới thiệu sản phẩm') + (data.product_name ? ' · ' + data.product_name : '') + '\n\n' + (data.skipped ? 'Bot không gửi tin nhắn.' : data.reply) + (mediaDescription ? '\n\nDự kiến gửi ' + mediaDescription + ' trước lời báo giá.' : '');
   } catch (error) { if (version === previewVersion) { result.classList.add('error'); result.textContent = error.message; } }
   finally {
     $('preview-reply').disabled = false;
@@ -319,6 +321,24 @@ $('preview-reply').addEventListener('click', async () => {
     if ($('settings-dialog').open && version === previewVersion) result.scrollIntoView({ block: 'nearest' });
   }
 });
+$('reset-introduction').addEventListener('click', async () => {
+  const notice = $('introduction-reset-status');
+  const senderId = previewSenderId;
+  if (!senderId) { notice.textContent = 'Chọn khách trong hộp thư trước khi reset.'; return; }
+  const token = $('introduction-admin-token').value.trim();
+  $('introduction-admin-token').value = '';
+  $('reset-introduction').disabled = true;
+  try {
+    const data = await api('reset_introduction', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ sender_id: senderId })
+    });
+    resetPreview();
+    notice.textContent = 'Đã reset mẫu ' + data.product_name + '. Bot sẽ gửi lại khi khách nhắn tiếp.';
+  } catch (error) { notice.textContent = error.message; }
+  finally { $('reset-introduction').disabled = false; }
+});
+$('settings-dialog').addEventListener('close', () => { $('introduction-admin-token').value = ''; });
 $('save-prompt').addEventListener('click', async () => {
   $('save-prompt').disabled = true;
   $('prompt-status').textContent = 'Đang lưu…';

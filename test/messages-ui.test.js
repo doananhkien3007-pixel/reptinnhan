@@ -242,3 +242,51 @@ test('giao diện gom mọi tin nhắn của cùng khách vào một nhãn hội
   assert.equal(toggleCall.options.body, '{}');
   assert.equal(elements.get('reply-status').textContent, 'Đã tạm dừng');
 });
+
+test('khung thử giữ dấu ảnh đã gửi và lượt bàn giao im lặng trong lịch sử hợp lệ', async () => {
+  const h = await soundHarness({ supported: false });
+  const requests = [];
+  const responses = [
+    {intent:'product_introduction',product_name:'Váy hoa',reply:'Giá 279.000đ.\n\nXin chiều cao + cân nặng.',messages:['Giá 279.000đ.','Xin chiều cao + cân nặng.'],media_ids:['image-1','video-1'],media_markers:['[Ảnh sản phẩm 7:image-1]','[Video sản phẩm 7:video-1]'],image_count:1,video_count:1,skipped:false},
+    {intent:'human_handoff',reply:'',messages:[],media_ids:[],media_markers:[],skipped:true},
+    {intent:'human_handoff',reply:'',messages:[],media_ids:[],media_markers:[],skipped:true}
+  ];
+  h.context.fetch = async (url, init) => {
+    assert.match(String(url), /preview_reply/);
+    requests.push(JSON.parse(init.body));
+    return Response.json(responses.shift());
+  };
+  const message = h.context.document.getElementById('preview-message');
+  const run = h.elements.get('preview-reply').listeners.click;
+  message.value='xin giá'; await run();
+  assert.match(h.elements.get('preview-result').textContent,/1 ảnh \+ 1 video trước lời báo giá/);
+  message.value='53kg'; await run();
+  assert.match(requests[1].preview_history[1].text,/\[Ảnh sản phẩm 7:image-1\]/);
+  assert.match(requests[1].preview_history[1].text,/\[Video sản phẩm 7:video-1\]/);
+  assert.match(h.elements.get('preview-result').textContent,/Nhân viên tiếp tục xử lý/);
+  assert.match(h.elements.get('preview-result').textContent,/Bot không gửi tin nhắn/);
+  message.value='gửi ảnh'; await run();
+  assert.equal(requests[2].preview_history[3].text,'[Bot không gửi tin]');
+  assert.ok(requests[2].preview_history.every((item,index) => item.direction === (index%2===0 ? 'inbound' : 'outbound') && item.text.trim()));
+});
+
+test('Human reset dùng khách đang hiển thị trong cấu hình và không giữ mã quản trị', async () => {
+  const h = await soundHarness({ supported:false });
+  vm.runInContext("selectedId='customer-2'; previewSenderId='customer-1';",h.context);
+  const token=h.context.document.getElementById('introduction-admin-token');
+  token.value='test-administrator-secret';
+  let request;
+  h.context.fetch=async (url,init)=>{
+    assert.match(String(url),/reset_introduction/);
+    request={body:JSON.parse(init.body),headers:init.headers};
+    return Response.json({reset:true,product_name:'Váy hoa',product_id:7});
+  };
+  await h.elements.get('reset-introduction').listeners.click();
+  assert.equal(request.body.sender_id,'customer-1');
+  assert.equal(request.headers.Authorization,'Bearer test-administrator-secret');
+  assert.equal(token.value,'');
+  assert.match(h.elements.get('introduction-reset-status').textContent,/khi khách nhắn tiếp/);
+  token.value='another-secret';
+  h.elements.get('settings-dialog').listeners.close();
+  assert.equal(token.value,'');
+});

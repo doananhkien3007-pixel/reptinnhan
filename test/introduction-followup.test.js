@@ -8,24 +8,22 @@ const product = { id: 12, name: 'Váy hoa', price: 450000, sale_price: 279000, s
   { media_type: 'video', facebook_attachment_id: 'video-1' }
 ] };
 
-test('đủ số đo và thông tin nhận hàng thì tư vấn size, không chạy lời chào', () => {
-  const result = getIntroductionFollowup(product, [], 'Cao m59 nặng 70kg sdt 0842432523 địa chỉ 1166/78 quốc lộ 1a bình tân');
-  assert.match(result.reply, /70kg.*size XL/);
-  assert.doesNotMatch(result.reply, /xin|279K|tạo đơn/);
+test('số đo hoặc thông tin nhận hàng nhường nhân viên, không trả lời size', () => {
+  for (const text of ['Cao m59 nặng 70kg sdt 0842432523', 'cao m59', '70kg', 'nang 53', 'sdt 0842432523']) {
+    assert.deepEqual(getIntroductionFollowup(product, [], text), {intent:'human_handoff',reply:null});
+  }
 });
 
-test('chỉ hỏi cân nặng khi đã có chiều cao; cân nặng đủ thì không hỏi chiều cao', () => {
-  assert.match(getIntroductionFollowup(product, [], 'cao m59').reply, /xin cân nặng/);
-  assert.doesNotMatch(getIntroductionFollowup(product, [], '70kg').reply, /xin|chiều cao/);
+test('số đo ở lịch sử khách dừng bot kể cả xin ảnh; lời bot không phải số đo', () => {
+  const history=[{direction:'inbound',text:'70kg'}];
+  assert.equal(getIntroductionFollowup(product,history,'gửi ảnh').intent,'human_handoff');
+  assert.equal(getIntroductionFollowup(product,[{direction:'outbound',text:'chị 70kg'}],'gửi ảnh'),null);
 });
 
-test('dùng số đo ở lượt trước, không suy từ tin bot hoặc giả định khách đã chốt', () => {
-  const history = [{ direction: 'inbound', text: '70kg' }, { direction: 'outbound', text: 'cao 1m60 nặng 55kg' }];
-  assert.match(getIntroductionFollowup(product, history, 'chị mặc size gì').reply, /70kg.*size XL/);
-  assert.equal(getIntroductionFollowup(product, history, 'cảm ơn').reply, null);
-  assert.equal(getIntroductionFollowup(product, history, 'gửi ảnh mẫu cho chị'), null);
-  assert.doesNotMatch(getIntroductionFollowup(product, [], 'sdt 0842432523').reply, /đơn|xin/);
-  assert.equal(getIntroductionFollowup(product, [], 'chị lấy size XL'), null);
+test('số trần sau câu xin số đo bàn giao, giá hoặc số điện thoại không bị đoán thành số đo', () => {
+  assert.equal(getIntroductionFollowup(product,[{direction:'outbound',text:SIZE_QUESTION}],'53').intent,'human_handoff');
+  assert.equal(getIntroductionFollowup(product,[{direction:'inbound',text:'53'},{direction:'outbound',text:SIZE_QUESTION}],'gửi ảnh'),null);
+  assert.equal(getIntroductionFollowup(product,[],'giá 279k'),null);
 });
 
 test('giới thiệu còn thiếu chỉ hỏi số đo chưa có trong lịch sử', () => {
@@ -53,4 +51,30 @@ test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship c
   const message = getPromotionMessage(regular);
   assert.match(message, /399\.000đ/);
   assert.doesNotMatch(message, /279|ưu đãi|Freeship|Mai/);
+});
+
+test('gửi một video nếu có và không gửi lại video đã lưu', () => {
+  const plan=planIntroduction({...product,images:[...product.images,{media_type:'video',facebook_attachment_id:'video-2',sort_order:1}]},[]);
+  assert.equal(plan.videos.length,1);
+  assert.equal(plan.videos[0].video.facebook_attachment_id,'video-1');
+  assert.deepEqual(planIntroduction(product,[plan.videos[0].marker]).videos,[]);
+});
+
+test('khách đã nhận giá và câu xin số đo không nhận lại media hay giá mới', () => {
+  const sent=[getPromotionMessage(product),SIZE_QUESTION];
+  assert.deepEqual(planIntroduction({...product,sale_price:259000},sent),{images:[],videos:[],messages:[]});
+});
+
+test('câu xin số đo của mẫu cũ không đánh dấu mẫu mới đã tư vấn', () => {
+  const oldProduct={...product,id:11,name:'Váy cũ'};
+  const sent=[getPromotionMessage(oldProduct),SIZE_QUESTION,'[Ảnh sản phẩm 12:image-1]'];
+  const plan=planIntroduction(product,sent);
+  assert.equal(plan.images.length,2);
+  assert.deepEqual(plan.messages,[getPromotionMessage(product),SIZE_QUESTION]);
+});
+
+test('mẫu chưa có ảnh vẫn chỉ xin số đo một lần', () => {
+  const noImages={...product,images:[]};
+  const first=planIntroduction(noImages,[]);
+  assert.deepEqual(planIntroduction(noImages,first.messages),{images:[],videos:[],messages:[]});
 });

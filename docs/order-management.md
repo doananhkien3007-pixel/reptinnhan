@@ -1,6 +1,8 @@
-# Tự tạo đơn từ Messenger
+> Luồng Messenger hiện tại chỉ giới thiệu hình/video/giá và xin số đo, sau đó nhường nhân viên. Webhook không còn tự tạo đơn hoặc thu thập đơn âm thầm. Tài liệu dưới đây mô tả bộ xử lý đơn và schema còn được giữ để quản lý đơn đã có.
 
-## Luồng đã triển khai
+# Quản lý đơn và bộ xử lý đơn cũ
+
+## Luồng cũ (không còn được webhook gọi)
 
 Khách chốt mua → AI trích thông tin có bằng chứng từ tin khách → server kiểm tra trường thiếu → hỏi từng phần còn thiếu → ghi đơn + bộ nhớ + mã sự kiện trong một transaction → xác nhận đã tạo đơn → hiển thị tại `/orders`.
 
@@ -13,7 +15,7 @@ Khách chốt mua → AI trích thông tin có bằng chứng từ tin khách �
 - Sửa/hủy sau khi đã tạo được gắn `review_request` để shop xử lý. Bot không tự sửa đơn đã giao. Quản trị có thể thay đổi trạng thái; chưa có trình sửa các trường đơn.
 - Nhắc lại chốt không tạo đơn thứ hai. Chỉ yêu cầu rõ một đơn riêng mới mở checkout mới; thông tin nhận hàng cũ không tự dùng lại.
 - Bộ nhớ theo conversation lưu bền qua restart. Mỗi event Facebook ghi vào `order_events`, RPC kiểm tra revision và khóa hàng conversation. Nếu lỗi sau ghi đơn nhưng trước gửi tin, retry lấy kết quả đã lưu, không tạo lại đơn.
-- Chế độ thử AI ở hộp thư vẫn chỉ tư vấn, không ghi đơn và không gửi Messenger.
+- Khung thử ở hộp thư chạy kịch bản giới thiệu/bàn giao, không ghi đơn và không gửi Messenger.
 
 ## Kích hoạt trên môi trường triển khai
 

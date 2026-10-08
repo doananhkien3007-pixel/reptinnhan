@@ -13,11 +13,26 @@ export function getPromotionMessage(product) {
   const money = value => `${value.toLocaleString('vi-VN')}đ`;
   const parts = [hasSale ? `giá ưu đãi ${money(salePrice)} (giá gốc ${money(price)})` : `giá ${money(price)}`];
   if (product.shipping_policy?.trim()) parts.push(product.shipping_policy.trim());
-  return `Dạ mẫu ${product.name}: ${parts.join(', ')} ạ.\n\n${product.material?.trim() ? `Chất liệu: ${product.material.trim()}.` : ''}`.trim();
+  return `Dạ mẫu ${product.name}: ${parts.join(', ')} ạ.`;
 }
 
 // Only outbound shop messages count as completed introduction steps.
 export function planIntroduction(product, texts, { allowLegacy = false, history = [], receivedText = '' } = {}) {
+  const prefix = `Dạ mẫu ${product.name}: `;
+  let currentProduct = false;
+  let priceSent = false;
+  const productQuestions = [];
+  for (const text of texts) {
+    if (text.startsWith('Dạ mẫu ')) currentProduct = text.startsWith(prefix);
+    if (text.startsWith(prefix)) priceSent = true;
+    if ((currentProduct || allowLegacy) && /can nang|chieu cao/.test(normalizeText(text)) &&
+        /xin|cho em|cho shop|\?/.test(normalizeText(text))) productQuestions.push(text);
+  }
+  // Price followed by the measurement question completes this product's script.
+  // This also covers customers introduced before optional video was restored.
+  if (priceSent && productQuestions.some(text => /can nang/.test(normalizeText(text)) && /chieu cao/.test(normalizeText(text)))) {
+    return { images: [], videos: [], messages: [] };
+  }
   const images = [...new Map((product.images || [])
     .filter((item) => item.media_type !== 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0))
@@ -27,13 +42,9 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 1);
   const promotionMessage = getPromotionMessage(product);
-  const prefix = `Dạ mẫu ${product.name}: `;
-  const hasProductImages = texts.some((text) => text.startsWith(`[Ảnh sản phẩm ${product.id}:`));
-  const relevant = texts.filter((text) => allowLegacy || text.startsWith(prefix) ||
-    (hasProductImages && text === SIZE_QUESTION));
   const questions = [];
   const measurements = getCustomerMeasurements(history, receivedText);
-  const questionTexts = relevant.map(normalizeText).filter((text) => /\b(xin|cho em|cho shop|bao nhieu|may)\b|\?/.test(text));
+  const questionTexts = productQuestions.map(normalizeText);
   if (measurements.weight === null && !questionTexts.some((text) => /can nang|nang (bao nhieu|may)/.test(text))) questions.push('cân nặng');
   if (measurements.weight === null && measurements.height === null && !questionTexts.some((text) => /chieu cao|cao (bao nhieu|may)/.test(text))) questions.push('chiều cao');
   return {
@@ -44,15 +55,13 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
       legacyColorPrefix: `[Ảnh sản phẩm ${String(image.facebook_attachment_id).trim()}, màu `
     })).filter(({ marker, legacyMarkers, legacyColorPrefix }) => !texts.includes(marker) &&
       !(allowLegacy && texts.some((text) => legacyMarkers.includes(text) || text.startsWith(legacyColorPrefix)))),
-    videos: videos.map((video) => ({
+    videos: videos.map(video => ({
       video,
       marker: `[Video sản phẩm ${product.id}:${String(video.facebook_attachment_id).trim()}]`,
-      legacyMarkers: [`[Video sản phẩm ${String(video.facebook_attachment_id).trim()}]`],
-      legacyColorPrefix: `[Video sản phẩm ${String(video.facebook_attachment_id).trim()}, màu `
-    })).filter(({ marker, legacyMarkers, legacyColorPrefix }) => !texts.includes(marker) &&
-      !(allowLegacy && texts.some((text) => legacyMarkers.includes(text) || text.startsWith(legacyColorPrefix)))),
+      legacyMarker: `[Video sản phẩm ${String(video.facebook_attachment_id).trim()}]`
+    })).filter(({ marker, legacyMarker }) => !texts.includes(marker) && !(allowLegacy && texts.includes(legacyMarker))),
     messages: [
-      relevant.includes(promotionMessage) ? null : promotionMessage,
+      priceSent ? null : promotionMessage,
       questions.length === 2 ? SIZE_QUESTION : questions.length ? `Dạ chị cho em xin ${questions[0]}, em tư vấn size cho mình ạ.` : null
     ].filter(Boolean)
   };

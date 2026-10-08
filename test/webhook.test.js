@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { PROMOTION_MESSAGE, SIZE_QUESTION, getPromotionMessage } from '../server/product-introduction.js';
 
-test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', async (t) => {
+test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads mới nhất', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SECRET_KEY = 'test-secret';
   process.env.PAGE_ACCESS_TOKEN = 'test-page-token';
@@ -49,6 +49,8 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
   const orders = [];
   let failOrderCommit = false;
   let failCheckpointAfterOrder = false;
+  let failHandoffOnce = false;
+  let failAdUpdateOnce = false;
   const emptyCheckout = () => ({ action:'none',action_source:null,address_complete:false,multiple_items:false,
     ...Object.fromEntries(['customer_name','phone','address','size','color','quantity'].map(k=>[k,{value:null,source:null}])) });
   const field = value => ({value,source:value});
@@ -100,6 +102,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
       const stamp = url.searchParams.get('updated_at')?.slice(3);
       if (method === 'POST') {
         const row = JSON.parse(init.body);
+        if (failHandoffOnce && row.key.startsWith('product_intro:') && row.value.status === 'human_handoff') { failHandoffOnce = false; return json({message:'handoff unavailable'},500); }
         if (failCheckpointAfterOrder && row.value?.plan && orders.length) {
           failCheckpointAfterOrder=false; return json({message:'checkpoint unavailable'},500);
         }
@@ -127,7 +130,11 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     if (table === 'conversations') {
       if (method === 'GET') return json(single ? conversation : conversation ? [conversation] : []);
       if (method === 'POST') conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: null };
-      if (method === 'PATCH') conversation = { ...conversation, ...JSON.parse(init.body) };
+      if (method === 'PATCH') {
+        const patch=JSON.parse(init.body);
+        if(failAdUpdateOnce && patch.ad_id) {failAdUpdateOnce=false;return json({message:'ad update unavailable'},500);}
+        conversation = { ...conversation, ...patch };
+      }
       return json(single ? conversation : [conversation], method === 'POST' ? 201 : 200);
     }
     if (table === 'ad_product_mappings') {
@@ -156,7 +163,7 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
         if (failHistory) return json({ message: 'history unavailable' }, 500);
         const offset = Number(url.searchParams.get('offset') || 0);
         const limit = Number(url.searchParams.get('limit') || 500);
-        return json(storedMessages.filter((message) => message.sender_id === 'customer' && message.direction === 'outbound')
+        return json(storedMessages.filter((message) => message.sender_id === url.searchParams.get('sender_id')?.slice(3) && message.direction === 'outbound')
           .slice(offset, offset + limit).map((message) => ({ text: message.text })));
       }
       if (url.searchParams.get('select') === 'direction,text,created_at') {
@@ -175,12 +182,13 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
   };
 
   const { default: handler } = await import('../api/webhook.js');
-  const action = async (method, name, body = {}, expectedStatus = 200) => {
+  const action = async (method, name, body = {}, expectedStatus = 200, headers = {}) => {
     const res = {
       status(code) { this.statusCode = code; return this; },
+      setHeader() {},
       json(body) { this.body = body; return this; }
     };
-    await handler({ method, query: { action: name }, body }, res);
+    await handler({ method, query: { action: name }, body, headers }, res);
     assert.equal(res.statusCode, expectedStatus);
     return res.body;
   };
@@ -211,15 +219,16 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     aiRequests.length = 0;
     errors.length = 0;
     settings.clear();
-    conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', current_product_id: 7 };
+    conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', ad_id: 'default-ad', current_product_id: 7 };
     failHistory = false;
     multipleProducts = false;
-    extraProducts = []; adMappings.clear();
+    extraProducts = []; adMappings.clear(); adMappings.set('default-ad',7);
     failTextOnce = false;
     aiStatus = 200;
     responseStatus = 'completed';
     aiResult = { intent: 'other', reply: 'Dạ chị cần em tư vấn gì thêm ạ?', media_ids: [] };
-    failAttachmentOnce = null;
+    failAttachmentOnce = null; failHandoffOnce = false; failAdUpdateOnce = false;
+    process.env.ORDERS_ADMIN_TOKEN = "test-admin-token-at-least-24-characters";
     process.env.MESSENGER_MODE = 'contextual_ai';
     process.env.AUTO_ORDERS_ENABLED = 'false';
     process.env.FB_APP_SECRET = 'test-fb-app-secret';
@@ -227,355 +236,297 @@ test('bot hiểu ngữ cảnh và trả lời liên tục theo từng khách', a
     settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } });
     await run();
   });
+  const messageValues = () => sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id);
+  const introductionValues = p => [
+    ...p.images.filter(item => item.media_type !== 'video').sort((a,b) => Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)) || (a.sort_order || 0)-(b.sort_order || 0)).map(item => item.facebook_attachment_id).slice(0,4),
+    ...p.images.filter(item => item.media_type === 'video').sort((a,b) => (a.sort_order || 0)-(b.sort_order || 0)).slice(0,1).map(item => item.facebook_attachment_id),
+    getPromotionMessage(p), SIZE_QUESTION
+  ];
+  const adProduct = { ...product, id: 13, sku: 'VAY-13', name: 'Váy hồng tím', price: 450000, sale_price: 279000, shipping_policy: 'Freeship',
+    images: [1,2,3,4].map(id => ({facebook_attachment_id:`new-image-${id}`,sort_order:id})) };
   try {
-    await scenario('khách mới được AI trả lời đúng câu hỏi, không chạy bộ chào cố định', async () => {
-      aiResult = { intent: 'price', reply: 'Dạ mẫu váy hoa có giá 289.000đ chị nhé.', media_ids: [] };
-      await deliver('mẫu này giá bn');
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(sentToMessenger[0].message.text, aiResult.reply);
-      assert.equal(aiRequests.length, 1);
-      assert.match(aiRequests[0].instructions, /289000/);
-      assert.match(aiRequests[0].instructions, /Cotton lạnh/);
-      assert.equal(aiRequests[0].input.filter(item => item.content === 'mẫu này giá bn').length, 1);
-    });
-    await scenario('khách đã nhận bộ giới thiệu vẫn được tư vấn size và giữ lịch sử', async () => {
-      seed(PROMOTION_MESSAGE); seed(SIZE_QUESTION);
-      aiResult = { intent: 'size', reply: 'Dạ chị 53kg phù hợp size M theo bảng size của mẫu này ạ.', media_ids: [] };
-      await deliver('chị 53kg cao 1m60');
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(sentToMessenger[0].message.text, aiResult.reply);
-      assert.ok(aiRequests[0].input.some(item => item.role === 'assistant' && item.content === SIZE_QUESTION));
-      aiResult = { intent: 'color', reply: 'Dạ mẫu này có màu đen chị nhé.', media_ids: [] };
-      await deliver('còn màu nào');
-      assert.equal(sentToMessenger.length, 2);
-      assert.ok(aiRequests[1].input.some(item => item.role === 'user' && item.content === 'chị 53kg cao 1m60'));
-      assert.ok(aiRequests[1].input.some(item => item.role === 'assistant' && item.content.includes('size M')));
-    });
-    await scenario('thông tin đặt hàng không kích hoạt lại ảnh chào', async () => {
-      aiResult = { intent: 'order', reply: 'Dạ em đã nhận địa chỉ. Chị cho em xin số điện thoại nhận hàng nhé?', media_ids: ['primary-attachment'] };
-      await deliver('lấy đen size M giao 123 Nguyễn Trãi Hà Nội');
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(sentToMessenger[0].message.text, aiResult.reply);
-      assert.match(aiRequests[0].instructions, /không nói đã lên đơn/);
-    });
-    await scenario('chỉ gửi media hợp lệ khi khách yêu cầu xem mẫu', async () => {
-      aiResult = { intent: 'media', reply: 'Dạ em gửi chị ảnh và video mẫu này nhé.', media_ids: ['primary-attachment', 'video-attachment'] };
-      await deliver('gửi hình với video');
-      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id),
-        [aiResult.reply, 'primary-attachment', 'video-attachment']);
-    });
-    await scenario('chế độ giới thiệu gửi bộ chào một lần và trả lời số đo ở lượt tiếp theo', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
+    await scenario('chỉ gửi ảnh, video nếu có, giá và xin số đo; không gọi AI hay tự tạo đơn', async () => {
+      process.env.MESSENGER_MODE = 'contextual_ai'; process.env.AUTO_ORDERS_ENABLED = 'true';
       await deliver('mẫu này giá bao nhiêu');
-      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
-        'video-attachment',
-        'primary-attachment',
-        'secondary-attachment',
-        'third-attachment',
-        getPromotionMessage(product),
-        SIZE_QUESTION
-      ]);
-      assert.equal(aiRequests.length, 0);
-      await deliver('chị cao 1m60 nặng 53kg');
-      assert.equal(sentToMessenger.length, 7);
-      assert.match(sentToMessenger.at(-1).message.text, /53kg.*size M/);
-      assert.equal(aiRequests.length, 0);
+      assert.deepEqual(messageValues(), introductionValues(product));
+      assert.equal(aiRequests.length, 0); assert.equal(orders.length, 0); assert.equal(checkoutRow, null);
+      await deliver('còn màu nào'); await deliver('gửi hình lại');
+      assert.deepEqual(messageValues(), introductionValues(product));
     });
-    await scenario('tái hiện ảnh lỗi: khách gửi đủ số đo và nhận hàng không bị hỏi lại hay gửi bộ chào', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
+    await scenario('cùng khách + sản phẩm: quick reply sau nhiều giờ hoặc Ads khác không gửi lại', async () => {
+      adMappings.set('ad-A',7); adMappings.set('ad-B',7);
+      await deliver('Xem mẫu',{referral:{ad_id:'ad-A'},timestamp:1000});
+      assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
+      storedMessages.length=0; global.messages=[]; sentToMessenger.length=0;
+      await deliver('Giá bao nhiêu?',{referral:{ad_id:'ad-A'},timestamp:1000+4*3600000});
+      await deliver('Gửi mẫu',{postback:{referral:{ad_id:'ad-B'}},timestamp:1000+5*3600000});
+      assert.equal(sentToMessenger.length,0);
+    });
+    await scenario('một khách chuyển A sang B rồi quay lại A vẫn nhớ từng sản phẩm', async () => {
+      extraProducts=[adProduct]; adMappings.set('ad-A',7); adMappings.set('ad-B',13);
+      await deliver('Xem A',{referral:{ad_id:'ad-A'},timestamp:1000});
+      await deliver('Xem B',{referral:{ad_id:'ad-B'},timestamp:2000});
+      const before=sentToMessenger.length;
+      await deliver('Xem A',{referral:{ad_id:'ad-A'},timestamp:3000});
+      assert.equal(sentToMessenger.length,before);
+      assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
+      assert.equal(settings.get('product_intro:customer:13').value.status,'introduced');
+    });
+    await scenario('hai khách cùng sản phẩm có trạng thái riêng', async () => {
+      await deliver('Xem mẫu');
+      conversation={id:12,channel:'facebook',external_user_id:'customer-2',ad_id:'default-ad',current_product_id:7};
+      sentToMessenger.length=0;
+      await deliver('Xem mẫu',{sender:{id:'customer-2'}});
+      assert.deepEqual(messageValues(),introductionValues(product));
+      assert.ok(sentToMessenger.every(item=>item.recipient.id==='customer-2'));
+      assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
+      assert.equal(settings.get('product_intro:customer-2:7').value.status,'introduced');
+    });
+    await scenario('đang gửi lỗi chưa đánh dấu đã giới thiệu', async () => {
+      failAttachmentOnce='secondary-attachment';
+      const event={text:'Xem mẫu',mid:'receipt-progress'};
+      await deliver(event,{},503);
+      assert.equal(settings.get('product_intro:customer:7').value.status,'sending');
+      assert.equal(settings.get('product_intro:customer:7').value.sent_count,1);
+      await deliver(event);
+      assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
+      assert.deepEqual(messageValues(),introductionValues(product));
+    });
+    await scenario('chưa có Ads thì không đoán sản phẩm dù chỉ một mẫu', async () => {
+      conversation.ad_id=null;
+      await deliver('Xem mẫu');
+      assert.equal(sentToMessenger.length,0);
+      assert.equal(settings.has('product_intro:customer:7'),false);
+    });
+    await scenario('Human reset đúng cặp khách + mẫu, không gửi ngay; lượt sau gửi đủ bộ', async () => {
+      extraProducts=[adProduct]; adMappings.set('ad-A',7); adMappings.set('ad-B',13);
+      await deliver('Xem A',{referral:{ad_id:'ad-A'},timestamp:1000});
+      await deliver('Xem B',{referral:{ad_id:'ad-B'},timestamp:2000});
+      sentToMessenger.length=0;
+      const headers={authorization:'Bearer '+process.env.ORDERS_ADMIN_TOKEN};
+      await action('POST','reset_introduction',{sender_id:'customer',product_id:13},200,headers);
+      assert.equal(sentToMessenger.length,0);
+      assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
+      assert.equal(settings.get('product_intro:customer:13').value.status,'pending');
+      await deliver('Xem mẫu');
+      assert.deepEqual(messageValues(),introductionValues(adProduct));
+      await deliver('Xem mẫu'); assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('reset không có mã quản trị hoặc nhầm mẫu không thay đổi trạng thái', async () => {
+      await deliver('Xem mẫu');
+      const before=JSON.stringify(settings.get('product_intro:customer:7').value);
+      await action('POST','reset_introduction',{sender_id:'customer'},401);
+      await action('POST','reset_introduction',{sender_id:'customer',product_id:13},409,{authorization:'Bearer '+process.env.ORDERS_ADMIN_TOKEN});
+      assert.equal(JSON.stringify(settings.get('product_intro:customer:7').value),before);
+    });
+    await scenario('retry lượt cũ sau Human reset không tự gửi bộ mới', async () => {
+      const event={text:'Xem mẫu',mid:'before-reset'};
+      failAttachmentOnce='secondary-attachment'; await deliver(event,{},503);
+      await action('POST','reset_introduction',{sender_id:'customer'},200,{authorization:'Bearer '+process.env.ORDERS_ADMIN_TOKEN});
+      const before=sentToMessenger.length;
+      await deliver(event); assert.equal(sentToMessenger.length,before);
+      await deliver('Xem mẫu');
+      assert.deepEqual(messageValues().slice(before),introductionValues(product));
+    });
+    await scenario('khách gửi đủ số đo và nhận hàng từ đầu: không trả lời và không tạo đơn', async () => {
       await deliver('Cao m59 nặng 70kg sdt 0842432523 địa chỉ 1166/78 quốc lộ 1a bình tân');
-      assert.equal(sentToMessenger.length, 1);
-      assert.match(sentToMessenger[0].message.text, /70kg.*không nằm trong khoảng/);
-      assert.doesNotMatch(sentToMessenger[0].message.text, /xin chiều cao|xin cân nặng|tạo đơn/);
-      assert.equal(aiRequests.length, 0);
-      assert.equal(orders.length, 0);
-      await deliver('cảm ơn');
-      assert.equal(sentToMessenger.length, 1);
-    });
-    await scenario('giới thiệu nhớ số đo ở tin trước khi khách gửi số điện thoại', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
-      await deliver('cao m59');
-      assert.match(sentToMessenger[0].message.text, /xin cân nặng/);
-      await deliver('nang 53');
-      assert.match(sentToMessenger[1].message.text, /53kg.*size M/);
-      await deliver('sdt 0842432523');
-      assert.match(sentToMessenger[2].message.text, /53kg.*size M/);
-      assert.equal(sentToMessenger.length, 3);
-      assert.equal(aiRequests.length, 0);
-    });
-    await scenario('tư vấn số đo lỗi gửi thì retry một lần, không chuyển sang bộ chào', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
-      const event = { text: 'cao m59 nặng 53kg', mid: 'retry-measurements' };
-      failTextOnce = true;
-      await deliver(event, {}, 503);
-      await deliver(event);
-      await deliver(event);
-      assert.equal(sentToMessenger.length, 1);
-      assert.match(sentToMessenger[0].message.text, /53kg.*size M/);
+      assert.equal(sentToMessenger.length, 0); assert.equal(aiRequests.length, 0); assert.equal(orders.length, 0);
+      assert.equal(['introduced','human_handoff'].includes(settings.get('product_intro:customer:7').value.status), true);
       assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
-    });
-    await scenario('giới thiệu lỗi giữa chừng thì thử lại chỉ gửi phần còn thiếu', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
-      const event = { text: 'gửi mẫu cho chị', mid: 'retry-introduction' };
-      failAttachmentOnce = 'primary-attachment';
-      await deliver(event, {}, 503);
-      assert.deepEqual(sentToMessenger.map(item => item.message.attachment?.payload?.attachment_id), ['video-attachment']);
-      await deliver(event);
-      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
-        'video-attachment', 'primary-attachment', 'secondary-attachment', 'third-attachment', getPromotionMessage(product), SIZE_QUESTION
-      ]);
-      assert.equal(aiRequests.length, 0);
-      assert.equal(storedMessages.filter(item => item.text === '[Video sản phẩm 7:video-attachment]').length, 1);
-    });
-    await scenario('từ chối ID media ngoài sản phẩm đang tư vấn', async () => {
-      aiResult = { intent: 'media', reply: 'Dạ em gửi ảnh.', media_ids: ['unknown-attachment'] };
-      await deliver('cho xem ảnh', {}, 503);
+      await deliver('cảm ơn'); await deliver('gửi mẫu cho chị');
       assert.equal(sentToMessenger.length, 0);
-      assert.match(errors.at(-1)[1].message, /không hợp lệ/);
     });
-    await scenario('không đoán sản phẩm khi có nhiều mẫu chưa chọn', async () => {
-      multipleProducts = true;
-      conversation.current_product_id = null;
-      await deliver('giá bao nhiêu');
-      assert.match(aiRequests[0].instructions, /Chưa xác định sản phẩm/);
-      assert.doesNotMatch(aiRequests[0].instructions, /price_vnd/);
+    await scenario('chỉ có chiều cao hoặc chỉ cân nặng đã dừng bot', async () => {
+      await deliver('cao m59'); await deliver('nang 53'); await deliver('sdt 0842432523');
+      assert.equal(sentToMessenger.length, 0); assert.equal(aiRequests.length, 0);
     });
-    await scenario('ưu tiên mã sản phẩm khách nhắc, không ép về sản phẩm chính', async () => {
-      multipleProducts = true;
-      await deliver('cho chị xem VAY-8');
-      assert.equal(conversation.current_product_id, 8);
-      assert.match(aiRequests[0].instructions, /Váy lụa/);
-      assert.match(aiRequests[0].instructions, /399000/);
+    await scenario('nhận số đo sau lời giới thiệu thì bàn giao, không tự tư vấn size', async () => {
+      await deliver('xin giá');
+      const before = sentToMessenger.length;
+      await deliver('53kg cao 1m60'); await deliver('size nào'); await deliver('gửi hình');
+      assert.equal(sentToMessenger.length, before);
+      assert.equal(['introduced','human_handoff'].includes(settings.get('product_intro:customer:7').value.status), true);
     });
-    await scenario('referral chưa ghép vẫn giữ sản phẩm hội thoại và tiếp tục AI', async () => {
-      await deliver('Có miễn phí ship không?', { referral: { ad_id: 'new-unmapped-ad', source: 'ADS' } });
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(conversation.ad_id, 'new-unmapped-ad');
-      assert.equal(conversation.current_product_id, 7);
-      assert.match(aiRequests[0].instructions, /không suy ra từ lời quảng cáo cũ/);
+    await scenario('cân nặng chỉ ghi số sau câu hỏi số đo cũng bàn giao', async () => {
+      await deliver('xin giá'); const before = sentToMessenger.length;
+      await deliver('53');
+      assert.equal(sentToMessenger.length, before);
+      assert.equal(['introduced','human_handoff'].includes(settings.get('product_intro:customer:7').value.status), true);
     });
-    const adProduct = {
-      ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279', name: 'Váy hoa thiết kế hồng tím',
-      price: 450000, sale_price: 279000, shipping_policy: 'Freeship', material: 'Lụa Mango Hàn Quốc', colors: ['Hồng', 'Tím'],
-      images: [1, 2, 3, 4].map(id => ({ color: id <= 2 ? 'Hồng' : 'Tím', facebook_attachment_id: `new-image-${id}`, sort_order: id }))
-    };
-    await scenario('ads chọn đúng mẫu không video, gửi bốn ảnh + ưu đãi + hỏi số đo, tin sau giữ mẫu', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
-      extraProducts = [adProduct]; adMappings.set('52590312182503', 13);
-      seed(PROMOTION_MESSAGE); seed('[Ảnh sản phẩm 7:primary-attachment]');
-      await deliver('mẫu này giá bao nhiêu', { message: { text: 'mẫu này giá bao nhiêu', mid: 'new-ad', referral: { ad_id: '52590312182503' } } });
-      assert.equal(conversation.ad_id, '52590312182503');
-      assert.equal(conversation.current_product_id, 13);
-      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
-        ...adProduct.images.map(image => image.facebook_attachment_id), getPromotionMessage(adProduct), SIZE_QUESTION
-      ]);
-      assert.match(sentToMessenger[4].message.text, /279\.000đ.*450\.000đ.*Freeship/);
-      await deliver('chị 53kg cao 1m60');
-      assert.equal(sentToMessenger.length, 7);
-      assert.match(sentToMessenger.at(-1).message.text, /hồng tím.*size M/);
-      assert.equal(aiRequests.length, 0);
-      await deliver('gửi mẫu cho chị');
-      assert.equal(sentToMessenger.length, 7);
+    await scenario('bàn giao mẫu A không chặn bộ giới thiệu mẫu B', async () => {
+      await deliver('53kg');
+      storedMessages.length = 0;
+      for (let i=0;i<65;i++) storedMessages.push({sender_id:'customer',conversation_id:11,direction:'inbound',text:'cảm ơn'});
+      global.messages = [];
+      extraProducts = [adProduct]; adMappings.set('new-ad', 13);
+      await deliver('gửi ảnh mới', {referral:{ad_id:'new-ad'},timestamp:2000});
+      assert.equal(conversation.ad_id, 'new-ad'); assert.deepEqual(messageValues(),introductionValues(adProduct));
     });
-    await scenario('đổi ads sang mẫu khác gửi đúng ảnh và giá mới', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
-      extraProducts = [adProduct]; adMappings.set('old-ad', 7); adMappings.set('52590312182503', 13);
-      await deliver('xem mẫu', { referral: { ad_id: 'old-ad' } });
-      sentToMessenger.length = 0;
-      await deliver('xem mẫu', { postback: { referral: { ad_id: '52590312182503' } } });
-      assert.equal(conversation.current_product_id, 13);
-      assert.deepEqual(sentToMessenger.filter(item => item.message.attachment).map(item => item.message.attachment.payload.attachment_id), adProduct.images.map(image => image.facebook_attachment_id));
-      assert.ok(sentToMessenger.some(item => item.message.text === getPromotionMessage(adProduct)));
+    await scenario('không dùng số đo ở mẫu cũ để chặn sản phẩm chưa giới thiệu', async () => {
+      storedMessages.push({sender_id:'customer',conversation_id:11,direction:'inbound',text:'chị 53kg'});
+      await deliver('cho xem ảnh');
+      assert.deepEqual(messageValues(),introductionValues(product));
+      assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
     });
-    await scenario('mẫu không video lỗi khi gửi giá thì retry không gửi lại ảnh, giá hoặc câu hỏi', async () => {
-      process.env.MESSENGER_MODE = 'introduction_only';
-      extraProducts = [adProduct]; adMappings.set('52590312182503', 13);
-      failTextOnce = true;
-      const message = { text: 'xem mẫu', mid: 'no-video-retry' };
-      const event = { referral: { ad_id: '52590312182503' } };
-      await deliver(message, event, 503);
-      assert.equal(sentToMessenger.length, 4);
-      await deliver(message, event);
-      await deliver(message, event);
-      assert.deepEqual(sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id), [
-        ...adProduct.images.map(image => image.facebook_attachment_id), getPromotionMessage(adProduct), SIZE_QUESTION
-      ]);
-      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+    await scenario('lỗi lưu bàn giao thì retry không nhắn khách và không mất tin', async () => {
+      const event = {text:'53kg',mid:'retry-handoff'};
+      failHandoffOnce = true;
+      await deliver(event,{},503); await deliver(event); await deliver(event);
+      assert.equal(sentToMessenger.length,0); assert.equal(['introduced','human_handoff'].includes(settings.get('product_intro:customer:7').value.status),true);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length,1);
     });
-    await scenario('mapping thêm sau referral được tìm lại khi hội thoại chưa có sản phẩm', async () => {
-      extraProducts = [adProduct]; adMappings.set('52590312182503', 13);
-      conversation.current_product_id = null; conversation.ad_id = '52590312182503';
-      await deliver('giá bao nhiêu');
-      assert.equal(conversation.current_product_id, 13);
-      assert.match(aiRequests[0].instructions, /"price_vnd":279000/);
-      assert.match(aiRequests[0].instructions, /Freeship/);
-    });
-    await scenario('tên mẫu mới chứa tên mẫu cũ vẫn chọn đúng tên đầy đủ', async () => {
-      extraProducts = [adProduct];
-      await deliver('cho chị xem Váy hoa thiết kế hồng tím');
-      assert.equal(conversation.current_product_id, 13);
-    });
-    await scenario('Meta gửi lại cùng mid không lưu hay trả lời trùng', async () => {
-      const event = { text: 'chị 53kg', mid: 'same-mid' };
-      await deliver(event);
-      await deliver(event);
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
-      assert.equal(aiRequests.length, 1);
-    });
-    await scenario('gửi lỗi giữa chừng, thử lại tiếp từ bước chưa gửi', async () => {
-      aiResult = { intent: 'media', reply: 'Dạ em gửi chị hai ảnh.', media_ids: ['primary-attachment', 'secondary-attachment'] };
-      const event = { text: 'gửi hình', mid: 'retry-media' };
+    await scenario('retry phần ảnh lỗi chỉ gửi phần còn thiếu', async () => {
       failAttachmentOnce = 'secondary-attachment';
-      await deliver(event, {}, 503);
-      assert.equal(sentToMessenger.length, 2);
-      await deliver(event);
-      assert.equal(sentToMessenger.length, 3);
-      assert.equal(aiRequests.length, 1);
-      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
-      assert.equal(sentToMessenger[2].message.attachment.payload.attachment_id, 'secondary-attachment');
+      const event={text:'xem mẫu',mid:'retry-introduction'};
+      await deliver(event,{},503); assert.deepEqual(messageValues(),['primary-attachment']);
+      await deliver(event); await deliver(event);
+      assert.deepEqual(messageValues(), introductionValues(product)); assert.equal(aiRequests.length,0);
+      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length,1);
     });
-    await scenario('lỗi OpenAI được ghi nhận, thử lại không mất tin khách', async () => {
-      aiStatus = 500;
-      const event = { text: 'chị cần tư vấn', mid: 'retry-ai' };
-      await deliver(event, {}, 503);
-      assert.equal(sentToMessenger.length, 0);
-      aiStatus = 200;
-      await deliver(event);
-      assert.equal(sentToMessenger.length, 1);
-      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
+    await scenario('retry báo giá lỗi không gửi lại ảnh', async () => {
+      failTextOnce = true; const event={text:'xem mẫu',mid:'retry-price'};
+      await deliver(event,{},503); assert.equal(sentToMessenger.length,4);
+      await deliver(event); await deliver(event);
+      assert.deepEqual(messageValues(),introductionValues(product));
     });
-    await scenario('không gửi output dở dang hoặc lời nhắn quá dài', async () => {
-      responseStatus = 'incomplete';
-      await deliver('tư vấn', {}, 503);
-      responseStatus = 'completed';
-      aiResult.reply = 'x'.repeat(2001);
-      await deliver('tư vấn lại', {}, 503);
-      assert.equal(sentToMessenger.length, 0);
+    await scenario('video gửi lỗi thì retry tiếp video, không gửi lại ảnh', async () => {
+      failAttachmentOnce='video-attachment';
+      const event={text:'xin giá',mid:'retry-video'};
+      await deliver(event,{},503);
+      assert.deepEqual(messageValues(),introductionValues(product).slice(0,3));
+      await deliver(event); await deliver(event);
+      assert.deepEqual(messageValues(),introductionValues(product));
+    });
+    await scenario('khách đã giới thiệu từ bản không video thì không gửi bổ sung video', async () => {
+      seed('[Ảnh sản phẩm 7:primary-attachment]'); seed(getPromotionMessage(product)); seed(SIZE_QUESTION);
+      await deliver('xin giá'); await deliver('gửi mẫu');
+      assert.equal(sentToMessenger.length,0);
+    });
+    await scenario('mẫu mới lỗi ở giá vẫn xin số đo sau retry dù mẫu cũ đã xin trước đó', async () => {
+      extraProducts=[adProduct]; adMappings.set('new-ad',13);
+      seed(getPromotionMessage(product)); seed(SIZE_QUESTION);
+      failTextOnce=true; const event={text:'xem mẫu',mid:'new-product-price-failure'};
+      const referral={referral:{ad_id:'new-ad'},timestamp:2000};
+      await deliver(event,referral,503); await deliver(event,referral);
+      assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('Ads mới nhất quyết định sản phẩm kể cả tin nhắc mẫu cũ', async () => {
+      extraProducts=[adProduct]; adMappings.set('new-ad',13);
+      await deliver({text:'cho xem VAY-7',referral:{ad_id:'new-ad'}},{timestamp:2000});
+      assert.equal(conversation.ad_id,'new-ad'); assert.equal(conversation.current_product_id,13);
+      assert.deepEqual(messageValues(),introductionValues(adProduct));
+      await deliver('VAY-7'); assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('đổi Ads sang mẫu khác gửi đúng hình và giá mới', async () => {
+      extraProducts=[adProduct]; adMappings.set('old-ad',7); adMappings.set('new-ad',13);
+      await deliver('xem mẫu',{referral:{ad_id:'old-ad'},timestamp:1000});
+      sentToMessenger.length=0;
+      await deliver('xem mẫu',{postback:{referral:{ad_id:'new-ad'}},timestamp:2000});
+      assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('Ads cũ đến muộn không thay Ads mới nhất', async () => {
+      extraProducts=[adProduct]; adMappings.set('old-ad',7); adMappings.set('new-ad',13);
+      await deliver('xem mẫu',{referral:{ad_id:'new-ad'},timestamp:2000}); sentToMessenger.length=0;
+      await deliver('xem mẫu',{referral:{ad_id:'old-ad'},timestamp:1000});
+      assert.equal(conversation.ad_id,'new-ad'); assert.equal(conversation.current_product_id,13);
+      assert.equal(sentToMessenger.length,0);
+    });
+    await scenario('lỗi ghi Ads giữa chừng: tin tiếp theo phục hồi Ads mới thay vì tư vấn mẫu cũ', async () => {
+      extraProducts=[adProduct]; adMappings.set('old-ad',7); adMappings.set('new-ad',13);
+      conversation.ad_id='old-ad'; failAdUpdateOnce=true;
+      await deliver('xem mẫu',{referral:{ad_id:'new-ad'},timestamp:2000},503);
+      assert.equal(sentToMessenger.length,0);
+      await deliver('xin giá');
+      assert.equal(conversation.ad_id,'new-ad'); assert.deepEqual(messageValues(),introductionValues(adProduct));
+      await deliver('xem mẫu',{referral:{ad_id:'old-ad'},timestamp:1000});
+      assert.equal(conversation.ad_id,'new-ad'); assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('Ads mới chưa gắn mẫu không dùng sản phẩm cũ dù chỉ còn một mẫu', async () => {
+      await deliver('xem mẫu',{referral:{ad_id:'unmapped-ad'},timestamp:2000});
+      assert.equal(conversation.ad_id,'unmapped-ad'); assert.equal(conversation.current_product_id,null);
+      assert.equal(sentToMessenger.length,0); assert.equal(aiRequests.length,0);
+      adMappings.set('unmapped-ad',7);
+      await deliver('xin giá'); assert.deepEqual(messageValues(),introductionValues(product));
+    });
+    await scenario('referral riêng không có tin được lưu; referral cũ không ghi đè', async () => {
+      extraProducts=[adProduct]; adMappings.set('old-ad',7); adMappings.set('new-ad',13);
+      await deliver({}, {message:undefined, referral:{ad_id:'new-ad'},timestamp:2000});
+      assert.equal(conversation.ad_id,'new-ad'); assert.equal(sentToMessenger.length,0);
+      await deliver({}, {message:undefined, referral:{ad_id:'old-ad'},timestamp:1000});
+      assert.equal(conversation.ad_id,'new-ad');
+      await deliver('xin giá'); assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('hai referral riêng cùng timestamp vẫn phân biệt Ads ID', async () => {
+      extraProducts=[adProduct]; adMappings.set('old-ad',7); adMappings.set('new-ad',13);
+      await deliver({}, {message:undefined,referral:{ad_id:'old-ad'},timestamp:2000});
+      await deliver({}, {message:undefined,referral:{ad_id:'new-ad'},timestamp:2000});
+      assert.equal(conversation.ad_id,'new-ad');
+      await deliver('xin giá'); assert.deepEqual(messageValues(),introductionValues(adProduct));
+    });
+    await scenario('không đoán mẫu khi nhiều sản phẩm và chưa có Ads', async () => {
+      multipleProducts=true; conversation.current_product_id=null; conversation.ad_id=null;
+      await deliver('xin giá'); assert.equal(sentToMessenger.length,0); assert.equal(aiRequests.length,0);
+    });
+    await scenario('Meta gửi trùng mid không lặp lời giới thiệu', async () => {
+      const event={text:'xin giá',mid:'same-mid'};
+      await deliver(event); await deliver(event);
+      assert.deepEqual(messageValues(),introductionValues(product));
+      assert.equal(storedMessages.filter(item => item.direction==='inbound').length,1);
     });
     await scenario('lịch sử lỗi thì không gửi thiếu ngữ cảnh', async () => {
-      failHistory = true;
-      await deliver('Chào shop', {}, 503);
-      assert.equal(sentToMessenger.length, 0);
-      assert.equal(aiRequests.length, 0);
+      failHistory=true; await deliver('xin giá',{},503);
+      assert.equal(sentToMessenger.length,0); assert.equal(aiRequests.length,0);
     });
-    await scenario('khách nhắn đồng thời được retry, không làm mất lượt sau', async () => {
-      const first = deliver({ text: 'giá bao nhiêu', mid: 'parallel-first' });
-      // The first request owns the lease before the second event arrives.
-      while (!settings.get('ai_conversation:customer')) await new Promise(resolve => setImmediate(resolve));
-      await deliver({ text: 'chị 53kg', mid: 'parallel-second' }, {}, 503);
-      await first;
-      await deliver({ text: 'chị 53kg', mid: 'parallel-second' });
-      assert.equal(sentToMessenger.length, 2);
-      assert.equal(aiRequests.length, 2);
-      assert.ok(aiRequests[1].input.some(item => item.content === 'giá bao nhiêu'));
+    await scenario('tin đến đồng thời được retry rồi bàn giao khi khách gửi số đo', async () => {
+      const first=deliver({text:'xin giá',mid:'parallel-first'});
+      while (!settings.get('ai_conversation:customer')) await new Promise(resolve=>setImmediate(resolve));
+      await deliver({text:'53kg',mid:'parallel-second'},{},503);
+      await first; const before=sentToMessenger.length;
+      await deliver({text:'53kg',mid:'parallel-second'});
+      assert.equal(sentToMessenger.length,before); assert.equal(['introduced','human_handoff'].includes(settings.get('product_intro:customer:7').value.status),true);
     });
-    await scenario('tắt bot và echo không gọi AI hoặc gửi tin', async () => {
-      await deliver({ text: 'tin shop', is_echo: true });
-      await action('POST', 'toggle_auto_reply');
-      await deliver('Chào shop');
-      assert.equal(sentToMessenger.length, 0);
-      assert.equal(aiRequests.length, 0);
-      assert.equal(storedMessages.filter(item => item.direction === 'inbound').length, 1);
-    });
-    await scenario('tắt trả lời vẫn âm thầm bắt thông tin đơn từ tin đã lưu', async () => {
-      process.env.AUTO_ORDERS_ENABLED='true';
-      conversation.facebook_name='Nguyễn Mai';
-      settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: false } });
-      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),action:'confirm',action_source:'chốt',size:field('M')}};
-      await deliver('chốt size M');
-      assert.equal(aiRequests.length,1);
+    await scenario('tắt bot vẫn lưu tin và bàn giao; không âm thầm bắt đơn', async () => {
+      process.env.AUTO_ORDERS_ENABLED='true'; await action('POST','toggle_auto_reply');
+      await deliver('chốt size M'); await deliver('53kg');
+      assert.equal(sentToMessenger.length,0); assert.equal(aiRequests.length,0); assert.equal(orders.length,0);
+      assert.equal(storedMessages.filter(item=>item.direction==='inbound').length,2);
+      await action('POST','toggle_auto_reply'); await deliver('gửi ảnh');
       assert.equal(sentToMessenger.length,0);
-      assert.equal(checkoutRow.state.confirmed,true);
-      assert.equal(checkoutRow.state.size,'M');
-      assert.ok(checkoutRow.state.missing.includes('phone'));
     });
-    await scenario('khôi phục ý định mua từ lịch sử Supabase khi checkout chưa tồn tại', async () => {
-      process.env.AUTO_ORDERS_ENABLED='true';
-      delete process.env.FB_APP_SECRET;
-      conversation.facebook_name='Nguyễn Mai';
-      settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: false } });
-      storedMessages.push({sender_id:'customer',conversation_id:11,direction:'inbound',text:'Mình mua 1 cái váy'});
-      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),phone:field('0901234567')}};
-      await deliver('0901234567');
-      assert.equal(sentToMessenger.length,0);
-      assert.equal(checkoutRow.state.confirmed,true);
-      assert.equal(checkoutRow.state.recovered_from_history,true);
-      assert.equal(checkoutRow.state.phone,'0901234567');
+    await scenario('echo không kích hoạt bàn giao hoặc gửi tin', async () => {
+      await deliver({text:'chị 53kg',is_echo:true});
+      assert.equal(sentToMessenger.length,0); assert.equal(settings.has('product_intro:customer:7'),false);
+      assert.equal(storedMessages.length,0);
     });
-    await scenario('xem trước dùng ngữ cảnh nhưng không gửi tin hoặc đổi sản phẩm khách', async () => {
-      multipleProducts = true;
-      seed('Chị muốn xem mẫu nào ạ?');
-      const result = await action('POST', 'preview_reply', { message: 'VAY-8 giá bao nhiêu', sender_id: 'customer' });
-      assert.equal(result.product_name, 'Váy lụa');
-      assert.equal(result.history_count, 1);
-      assert.equal(conversation.current_product_id, 7);
-      assert.equal(sentToMessenger.length, 0);
-      assert.equal(storedMessages.length, 1);
-      assert.equal(aiRequests.length, 1);
-      assert.match(aiRequests[0].instructions, /399000/);
+    await scenario('preview cùng kịch bản nhưng không gửi tin, lưu bàn giao hay sửa sản phẩm', async () => {
+      extraProducts=[adProduct]; adMappings.set('new-ad',13); conversation.ad_id='new-ad';
+      const result=await action('POST','preview_reply',{message:'xin giá',sender_id:'customer'});
+      assert.equal(result.product_name,adProduct.name); assert.equal(result.intent,'product_introduction');
+      assert.deepEqual(result.media_ids,adProduct.images.map(item=>item.facebook_attachment_id));
+      assert.deepEqual(result.messages,[getPromotionMessage(adProduct),SIZE_QUESTION]);
+      assert.equal(conversation.current_product_id,7); assert.equal(sentToMessenger.length,0); assert.equal(aiRequests.length,0);
+      const handoff=await action('POST','preview_reply',{message:'53kg',sender_id:'customer'});
+      assert.equal(handoff.intent,'human_handoff'); assert.equal(handoff.skipped,true); assert.equal(handoff.reply,'');
+      assert.equal(settings.has('product_intro:customer:7'),false); assert.equal(storedMessages.length,0);
     });
-    await scenario('xem trước chặn tin rỗng hoặc quá dài trước khi gọi AI', async () => {
-      await action('POST', 'preview_reply', { message: ' ' }, 400);
-      await action('POST', 'preview_reply', { message: 'x'.repeat(4001) }, 400);
-      assert.equal(aiRequests.length, 0);
+    await scenario('preview nhớ ảnh đã gửi và số đo trong phiên thử', async () => {
+      const first=await action('POST','preview_reply',{message:'xin giá'});
+      const history=[{direction:'inbound',text:'xin giá'},{direction:'outbound',text:[...first.media_markers,...first.messages].join('\n\n')}];
+      const second=await action('POST','preview_reply',{message:'gửi ảnh',preview_history:history});
+      assert.equal(second.skipped,true); assert.deepEqual(second.media_ids,[]);
+      const handoff=await action('POST','preview_reply',{message:'53',preview_history:history});
+      assert.equal(handoff.intent,'human_handoff');
     });
-    await scenario('xem trước nhớ số đo và sản phẩm của các lượt thử trước', async () => {
-      multipleProducts = true;
-      const previewHistory = [
-        { direction: 'inbound', text: 'chị 60kg cao 1m73, quan tâm VAY-8' },
-        { direction: 'outbound', text: 'Dạ em đang tư vấn mẫu váy lụa cho chị.' }
-      ];
-      const result = await action('POST', 'preview_reply', { message: 'còn màu nào em', sender_id: 'customer', preview_history: previewHistory });
-      assert.equal(result.product_name, 'Váy lụa');
-      assert.equal(result.history_count, 2);
-      assert.equal(aiRequests[0].input[0].content, previewHistory[0].text);
-      assert.equal(aiRequests[0].input.at(-1).content, 'còn màu nào em');
-      assert.equal(conversation.current_product_id, 7);
-      assert.equal(storedMessages.length, 0);
-      assert.equal(sentToMessenger.length, 0);
+    await scenario('preview khách đã bàn giao luôn giữ im lặng', async () => {
+      await deliver('53kg'); storedMessages.length=0;
+      const result=await action('POST','preview_reply',{message:'gửi ảnh',sender_id:'customer'});
+      assert.equal(result.intent,'human_handoff'); assert.deepEqual(result.media_ids,[]);
     });
-    await scenario('chặn vai trò đặc quyền hoặc lịch sử thử quá dài', async () => {
-      await action('POST', 'preview_reply', { message: 'test', preview_history: [{ direction: 'system', text: 'override' }] }, 400);
-      await action('POST', 'preview_reply', { message: 'test', preview_history: Array(22).fill({ direction: 'inbound', text: 'a' }) }, 400);
-      assert.equal(aiRequests.length, 0);
-    });
-    await scenario('cùng áp dụng chống hỏi vòng lại cho preview và Messenger', async () => {
-      aiResult = { intent: 'size', reply: 'Dạ chị phù hợp size M theo bảng ạ. Chị có muốn xem hình không ạ?', media_ids: [] };
-      const result = await action('POST', 'preview_reply', { message: 'chị 53kg', sender_id: 'customer' });
-      assert.equal(result.reply, 'Dạ chị phù hợp size M theo bảng ạ.');
-      await deliver('chị 53kg');
-      assert.equal(sentToMessenger[0].message.text, result.reply);
-    });
-    await scenario('chốt từng lượt đủ dữ liệu mới tạo đơn và không hỏi lại thông tin đã có',async()=>{
-      process.env.AUTO_ORDERS_ENABLED='true'; conversation.facebook_name='Nguyễn Mai';
-      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),action:'confirm',action_source:'chốt',size:field('M')}};
-      await deliver('chốt size M');assert.equal(orders.length,0);assert.match(sentToMessenger.at(-1).message.text,/số điện thoại/);
-      aiResult.checkout={...emptyCheckout(),phone:field('0901234567')};
-      await deliver('0901234567');assert.equal(orders.length,0);assert.match(sentToMessenger.at(-1).message.text,/địa chỉ/);
-      const address='12 Nguyễn Trãi, phường Bến Thành, TP Hồ Chí Minh';
-      aiResult.checkout={...emptyCheckout(),address:field(address),address_complete:true};
-      const event={text:address,mid:'order-final'};
-      await deliver(event);assert.equal(orders.length,1);assert.match(sentToMessenger.at(-1).message.text,/đã tạo đơn/);
-      assert.equal(orders[0].customer_name,'Nguyễn Mai');assert.equal(orders[0].size,'M');
-      await deliver(event);assert.equal(orders.length,1);assert.equal(sentToMessenger.length,3);
-      assert.ok(aiRequests[2].instructions.includes('0901234567'));
-    });
-    await scenario('lỗi ghi database không báo đã tạo; retry checkpoint/gửi tin không tạo đơn trùng',async()=>{
-      process.env.AUTO_ORDERS_ENABLED='true'; conversation.facebook_name='Nguyễn Mai';
-      const address='12 Nguyễn Trãi, phường Bến Thành, TP Hồ Chí Minh';
-      aiResult={intent:'order',reply:'Dạ em ghi nhận.',media_ids:[],checkout:{...emptyCheckout(),action:'confirm',action_source:'chốt',size:field('M'),phone:field('0901234567'),address:field(address),address_complete:true}};
-      const event={text:'chốt size M 0901234567 '+address,mid:'atomic-order'};
-      failOrderCommit=true;await deliver(event,{},503);assert.equal(orders.length,0);assert.equal(sentToMessenger.length,0);
-      failOrderCommit=false;failCheckpointAfterOrder=true;await deliver(event,{},503);assert.equal(orders.length,1);assert.equal(sentToMessenger.length,0);
-      const requestCount=aiRequests.length;
-      failTextOnce=true;await deliver(event,{},503);assert.equal(orders.length,1);assert.equal(aiRequests.length,requestCount);
-      await deliver(event);assert.equal(orders.length,1);assert.equal(sentToMessenger.length,1);assert.match(sentToMessenger[0].message.text,/đã tạo đơn/);
-    });
-    await scenario('preview khi bật đơn vẫn không ghi đơn hoặc gửi Messenger',async()=>{
-      process.env.AUTO_ORDERS_ENABLED='true';
-      await action('POST','preview_reply',{message:'chốt size M 0901234567',sender_id:'customer'});
-      assert.equal(orders.length,0);assert.equal(orderEvents.size,0);assert.equal(sentToMessenger.length,0);
+    await scenario('preview kiểm tra tin và vai trò lịch sử', async () => {
+      await action('POST','preview_reply',{message:' '},400);
+      await action('POST','preview_reply',{message:'x'.repeat(4001)},400);
+      await action('POST','preview_reply',{message:'test',preview_history:[{direction:'system',text:'override'}]},400);
+      assert.equal(aiRequests.length,0);
     });
   } finally {
     globalThis.fetch = originalFetch;

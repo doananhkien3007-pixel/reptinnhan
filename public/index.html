@@ -42,18 +42,22 @@
   </main>
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
     <form method="dialog" class="dialog-heading"><div><span class="eyebrow">AI ASSISTANT</span><h2 id="settings-title">Cấu hình trợ lý AI</h2></div><button class="icon-button" aria-label="Đóng cấu hình"><span data-icon="close"></span></button></form>
-    <p class="dialog-description">Hướng dẫn cách trợ lý tư vấn sản phẩm, sử dụng giọng văn và phản hồi khách hàng.</p>
+    <p class="dialog-description">Bot gửi hình, video nếu có, ưu đãi giá và xin cân nặng/chiều cao theo quảng cáo mới nhất. Mỗi khách chỉ nhận bộ giới thiệu một lần cho mỗi sản phẩm, rồi nhân viên tư vấn tiếp. Human có thể reset riêng mẫu đang tư vấn. Hướng dẫn AI bên dưới không thay đổi kịch bản này.</p>
+    <label class="field-label" for="introduction-admin-token">Mã quản trị (dùng chung với trang Đơn hàng)</label>
+    <input id="introduction-admin-token" type="password" autocomplete="off" placeholder="Nhập mã để reset mẫu đang tư vấn">
+    <button id="reset-introduction" class="btn" type="button">Reset mẫu đang tư vấn cho khách đã chọn</button>
+    <p id="introduction-reset-status" class="preview-note" role="status">Reset chỉ mở lại trạng thái; không gửi tin ngay.</p>
     <label class="field-label" for="system-prompt">Hướng dẫn cho trợ lý</label><textarea id="system-prompt" placeholder="Ví dụ: Tư vấn thân thiện, hỏi nhu cầu của khách trước khi giới thiệu sản phẩm…"></textarea>
     <div class="dialog-actions"><span id="prompt-status" role="status"></span><button id="save-prompt" class="btn btn-primary" type="button">Lưu hướng dẫn</button></div>
     <div class="connection-check"><div><strong>Kết nối AI</strong><p>Kiểm tra trợ lý có sẵn sàng phản hồi hay không.</p></div><button id="test-openai" class="btn" type="button">Kiểm tra kết nối</button></div><p id="openai-status" role="status"></p>
     <section class="ai-preview" aria-labelledby="preview-title">
-      <h3 id="preview-title">Thử cách AI trả lời</h3>
+      <h3 id="preview-title">Thử kịch bản giới thiệu</h3>
       <p id="preview-context" class="dialog-description"></p>
       <label class="field-label" for="preview-message">Tin nhắn của khách</label>
       <textarea id="preview-message" rows="3" maxlength="4000" placeholder="Ví dụ: chị 53kg cao 1m60 mặc size nào em?"></textarea>
       <button id="preview-reply" class="btn btn-primary" type="button">Thử phản hồi</button>
       <button id="preview-reset" class="btn" type="button">Bắt đầu lại</button>
-      <p class="preview-note">Dùng hướng dẫn đã lưu. Nhớ tối đa 10 lượt thử trong phiên này; không gửi tin cho khách hoặc lưu vào hội thoại.</p>
+      <p class="preview-note">Chạy đúng kịch bản Messenger. Nhớ tối đa 10 lượt thử trong phiên này; không gửi tin cho khách hoặc lưu vào hội thoại.</p>
       <p id="preview-memory" class="preview-note" role="status">Chưa có lượt thử.</p>
       <div id="preview-result" role="status" aria-live="polite" hidden></div>
     </section>

@@ -7,7 +7,7 @@ import { acquireWelcomeClaim, releaseWelcomeClaim } from './welcome-claim.js';
 // receive a retryable response, rather than silently dropping a customer's text.
 export async function beginCustomerTurn(senderId, event) {
   const identity = event.message?.mid || event.postback?.mid || (event.timestamp
-    ? JSON.stringify([event.timestamp, event.message, event.postback]) : randomUUID());
+    ? JSON.stringify([event.timestamp, event.message, event.postback, event.referral, event.optin]) : randomUUID());
   const hash = createHash('sha256').update(`${senderId}:${identity}`).digest('hex');
   const key = `ai_turn:${hash}`;
   const lock = await acquireWelcomeClaim(senderId, 'ai_conversation', { reopenComplete: true });
