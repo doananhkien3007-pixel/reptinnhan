@@ -12,7 +12,7 @@ Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có �
 
 ## Bộ giới thiệu
 
-Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Tiếp theo là giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Không tự thêm freeship hay thời hạn ưu đãi. Cuối cùng xin chiều cao và cân nặng.
+Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Tiếp theo là giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Không tự thêm freeship hay thời hạn ưu đãi. Riêng mẫu SKU `MANGO-HQ-HONG-TIM-279` (Ads `52590312182503`) dùng nguyên văn lời ưu đãi shop đã yêu cầu, gồm giá 279K, freeship, giá 450K ngày mai và đoạn giới thiệu chất liệu. Cuối cùng xin chiều cao và cân nặng.
 
 ## Trạng thái theo UID khách + sản phẩm
 

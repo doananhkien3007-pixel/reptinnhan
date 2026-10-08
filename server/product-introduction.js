@@ -7,6 +7,7 @@ export const normalizeText = (value) => String(value || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
 
 export function getPromotionMessage(product) {
+  if (product.sku === 'MANGO-HQ-HONG-TIM-279') return PROMOTION_MESSAGE;
   const price = Number(product.price);
   const salePrice = Number(product.sale_price);
   const hasSale = product.sale_price != null && Number.isFinite(salePrice) && salePrice > 0 && salePrice < price;
@@ -19,12 +20,20 @@ export function getPromotionMessage(product) {
 // Only outbound shop messages count as completed introduction steps.
 export function planIntroduction(product, texts, { allowLegacy = false, history = [], receivedText = '' } = {}) {
   const prefix = `Dạ mẫu ${product.name}: `;
+  const promotionMessage = getPromotionMessage(product);
+  const priceParagraph = promotionMessage.split('\n\n')[0];
   let currentProduct = false;
   let priceSent = false;
   const productQuestions = [];
   for (const text of texts) {
     if (text.startsWith('Dạ mẫu ')) currentProduct = text.startsWith(prefix);
     if (text.startsWith(prefix)) priceSent = true;
+    // Custom copy may omit the product name. Its exact price paragraph also
+    // identifies the product when preview history separates the paragraphs.
+    if (text === promotionMessage || text === priceParagraph) {
+      currentProduct = true;
+      priceSent = true;
+    }
     if ((currentProduct || allowLegacy) && /can nang|chieu cao/.test(normalizeText(text)) &&
         /xin|cho em|cho shop|\?/.test(normalizeText(text))) productQuestions.push(text);
   }
@@ -41,7 +50,6 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
     .filter((item) => item.media_type === 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 1);
-  const promotionMessage = getPromotionMessage(product);
   const questions = [];
   const measurements = getCustomerMeasurements(history, receivedText);
   const questionTexts = productQuestions.map(normalizeText);

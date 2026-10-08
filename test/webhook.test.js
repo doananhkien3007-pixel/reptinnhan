@@ -253,6 +253,26 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       await deliver('còn màu nào'); await deliver('gửi hình lại');
       assert.deepEqual(messageValues(), introductionValues(product));
     });
+    await scenario('Ads 52590312182503 gửi đúng lời ưu đãi Mango và không gửi lại sau đó', async () => {
+      const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
+      extraProducts=[mango]; adMappings.set('52590312182503',13);
+      await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:1000});
+      assert.deepEqual(messageValues(),[...mango.images.map(item=>item.facebook_attachment_id),PROMOTION_MESSAGE,SIZE_QUESTION]);
+      assert.equal(settings.get('product_intro:customer:13').value.status,'introduced');
+      await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:3600000});
+      assert.equal(sentToMessenger.length,6);
+    });
+    await scenario('preview nhớ đoạn báo giá Mango nhiều đoạn, không gửi lại giá hoặc ảnh', async () => {
+      const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
+      extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';
+      const first=await action('POST','preview_reply',{message:'Xin giá',sender_id:'customer'});
+      assert.equal(first.messages[0],PROMOTION_MESSAGE);
+      const history=[{direction:'inbound',text:'Xin giá'},{direction:'outbound',text:[...first.media_markers,...first.messages].join('\n\n')}];
+      const second=await action('POST','preview_reply',{message:'Gửi mẫu',sender_id:'customer',preview_history:history});
+      assert.equal(second.skipped,true); assert.deepEqual(second.media_ids,[]); assert.deepEqual(second.messages,[]);
+      assert.equal(settings.has('product_intro:customer:13'),false);
+      assert.equal(sentToMessenger.length,0);
+    });
     await scenario('cùng khách + sản phẩm: quick reply sau nhiều giờ hoặc Ads khác không gửi lại', async () => {
       adMappings.set('ad-A',7); adMappings.set('ad-B',7);
       await deliver('Xem mẫu',{referral:{ad_id:'ad-A'},timestamp:1000});
