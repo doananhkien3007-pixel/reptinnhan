@@ -6,6 +6,8 @@ Lab độc lập về dữ liệu và luồng xử lý để xây, thử và đ�
 
 Mở `/lab` trên cùng website LeafChat hoặc chọn **AI Sale Lab** ở thanh bên. Đây là một trang test riêng, nhưng dùng chung domain, giao diện và project Vercel hiện tại. API riêng nằm tại `/api/lab`; webhook Messenger, đơn hàng, tồn kho và bảng sản phẩm production không được gọi.
 
+Nút **AI Assistant → Cấu hình trợ lý AI** trong Lab cho phép chọn model và nhập hướng dẫn bổ sung cho Emi. Cấu hình được chụp cùng lúc tạo hội thoại và lưu trong chính record Lab để mỗi kết quả có thể tái kiểm tra. Thay đổi khi đang mở một hội thoại chỉ áp dụng cho hội thoại mới, tránh đổi hành vi giữa chừng. Hướng dẫn bổ sung được đặt sau persona nền và không được ghi đè quy tắc trung thực, shop facts, schema hoặc bảo mật. Cấu hình này không đọc hay ghi System Prompt của bot Messenger.
+
 Server đọc `OPENAI_API_KEY`, `OPENAI_MODEL`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` và `EMI_LAB_SESSION_SECRET` từ Vercel. Browser chỉ nhận cookie phiên được ký, HttpOnly và SameSite=Strict. Mỗi trình duyệt chỉ đọc được lịch sử thuộc phiên của mình. Dữ liệu nằm trong bảng `emi_lab_conversations`; RLS bật, vai trò `anon` và `authenticated` không có quyền trực tiếp.
 
 Migration: `sql/emi_sales_lab.sql`. Lab lưu toàn bộ snapshot persona/catalog cùng lịch sử, memory và kết quả phân tích của từng lượt. Gửi lại cùng request ID không gọi OpenAI hoặc ghi lịch sử lần hai. Revision và lock trong Postgres ngăn hai lượt đồng thời ghi đè nhau.

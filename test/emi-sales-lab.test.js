@@ -33,8 +33,8 @@ test('memory phân biệt người nhận, fact/inference và size tư vấn/ch�
 
 test('OpenAI request uses configurable model, strict schema, store:false, no tools and no chain of thought',async()=>{
  let request;const client={responses:{create:async p=>{request=p;return {status:'completed',id:'r',model:'configured-model',output_text:JSON.stringify(output()),usage:{total_tokens:30}};}}};
- const result=await generateBrain(input(),'configured-model',config,{client});
- assert.equal(request.model,'configured-model');assert.equal(request.store,false);assert.equal(request.text.format.strict,true);assert.equal(request.text.format.schema.additionalProperties,false);assert.equal(request.tools,undefined);assert.equal(request.reasoning,undefined);assert.match(request.instructions,/không xuất chain-of-thought/);assert.deepEqual(result.output,output());
+ const result=await generateBrain(input(),'configured-model',config,{client,customInstructions:'Ưu tiên hỏi dịp mặc trước khi đề xuất.'});
+ assert.equal(request.model,'configured-model');assert.equal(request.store,false);assert.equal(request.text.format.strict,true);assert.equal(request.text.format.schema.additionalProperties,false);assert.equal(request.tools,undefined);assert.equal(request.reasoning,undefined);assert.match(request.instructions,/không xuất chain-of-thought/);assert.match(request.instructions,/Ưu tiên hỏi dịp mặc/);assert.match(request.instructions,/không được ghi đè quy tắc an toàn/);assert.deepEqual(result.output,output());
  assert.equal(JSON.parse(request.input[0].content.split('\n').slice(1).join('\n')).customer.id,'test-default');
  for(const response of [{status:'incomplete',output_text:JSON.stringify(output())},{status:'completed',output_text:''},{status:'completed',output_text:'invalid'}])await assert.rejects(generateBrain(input(),'model',config,{client:{responses:{create:async()=>response}}}));
 });

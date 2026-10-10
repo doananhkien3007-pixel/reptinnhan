@@ -21,9 +21,7 @@
       </div>
       <div class="lab-controls">
         <span class="test-badge">● MÔI TRƯỜNG TEST</span>
-        <label class="model-control" for="model">Model OpenAI
-          <input id="model" spellcheck="false" maxlength="120" placeholder="Đang tải model…">
-        </label>
+        <button class="agent-config-button" id="open-agent-settings" type="button"><span aria-hidden="true">✦</span><span><small>AI ASSISTANT</small><strong>Cấu hình trợ lý AI</strong><em id="agent-config-summary">Đang tải cấu hình…</em></span></button>
       </div>
     </section>
 
@@ -76,5 +74,14 @@
     </div>
     <footer class="lab-footer">Catalog giả lập · Chỉ chat thử và lưu ngữ cảnh · Không kết nối Messenger, đơn hàng hoặc tồn kho</footer>
   </main>
+  <dialog id="agent-settings-dialog" class="agent-settings-dialog" aria-labelledby="agent-settings-title">
+    <form method="dialog" class="agent-dialog-heading"><div><span class="eyebrow">AI ASSISTANT</span><h2 id="agent-settings-title">Cấu hình trợ lý AI</h2></div><button class="icon-button" aria-label="Đóng cấu hình"><span aria-hidden="true">×</span></button></form>
+    <p class="agent-dialog-description">Cấu hình này chỉ dùng trong AI Sale Lab. Model và hướng dẫn bổ sung được lưu cùng hội thoại test, không thay đổi bot Messenger hoặc System Prompt production.</p>
+    <div id="agent-connection" class="agent-connection" role="status"><span class="status-dot"></span><div><strong>Đang kiểm tra OpenAI…</strong><small>Đọc cấu hình phía server</small></div></div>
+    <label class="agent-field" for="agent-model"><span>Model OpenAI</span><input id="agent-model" spellcheck="false" maxlength="120" placeholder="Ví dụ: gpt-4.1-mini"></label>
+    <label class="agent-field" for="agent-instructions"><span>Hướng dẫn bổ sung cho Emi</span><textarea id="agent-instructions" rows="8" maxlength="8000" placeholder="Ví dụ: Chủ động tư vấn theo dịp mặc; giải thích ngắn gọn vì sao mẫu phù hợp; chỉ hỏi một câu quan trọng mỗi lượt."></textarea><small><b id="instruction-count">0</b>/8000 ký tự · Không cần chép lại persona hoặc thông tin sản phẩm.</small></label>
+    <details class="base-persona"><summary>Persona nền đang được bảo vệ</summary><p id="base-persona-text">Emi House · xưng em, gọi chị · tư vấn chủ động theo toàn bộ ngữ cảnh</p><small>Hướng dẫn bổ sung không thể ghi đè quy tắc trung thực, nguồn dữ liệu sản phẩm, schema hoặc bảo mật.</small></details>
+    <div class="agent-dialog-actions"><span id="agent-settings-status" role="status"></span><button id="save-agent-settings" class="primary" type="button">Áp dụng cấu hình</button></div>
+  </dialog>
 </body>
 </html>
