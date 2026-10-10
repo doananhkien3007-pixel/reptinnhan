@@ -67,7 +67,7 @@ test('22 fixtures cover required ambiguity and transactions; production modules 
  assert.equal(SEED_CASES.length,22);for(const c of SEED_CASES)assert.ok(c.input.messages.length);
  assert.equal(SEED_CASES.find(c=>c.id==='seed-exchange-add').input.messages[0].text,'c đổi c này lấy cái xanh hồi nãy nha ngực chật quá với lấy thêm c bông vàng');
  for(const file of readdirSync(new URL('../lab/',import.meta.url)).filter(f=>f.endsWith('.js'))){const code=readFileSync(new URL(`../lab/${file}`,import.meta.url),'utf8');assert.doesNotMatch(code,/from ['"](?:\.\.\/server\/|\.\.\/api\/|@supabase\/)/);assert.doesNotMatch(code,/graph\.facebook\.com|PAGE_ACCESS_TOKEN|SUPABASE_SECRET_KEY|\/me\/messages/);}
- assert.deepEqual(readdirSync(new URL('../api/',import.meta.url)).filter(f=>f.endsWith('.js')).sort(),['facebook-ads.js','products.js','webhook.js']);
+ assert.deepEqual(readdirSync(new URL('../api/',import.meta.url)).filter(f=>f.endsWith('.js')).sort(),['facebook-ads.js','lab.js','products.js','webhook.js']);
 });
 
 test('HTTP end-to-end chat/feedback/replay/customer/import/export and local origin protection',async()=>{

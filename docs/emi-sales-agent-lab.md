@@ -1,8 +1,16 @@
 # EMI SALES AGENT LAB
 
-Lab độc lập để xây và đánh giá bộ não sale Emi House. OpenAI đọc toàn bộ context, diễn giải ý định, cập nhật memory và đề xuất câu trả lời. Code không phân loại khách bằng keyword, không state machine sale, không tự fine-tune. Lab chạy **local**, không deploy lên project Messenger.
+Lab độc lập về dữ liệu và luồng xử lý để xây, thử và đánh giá bộ não sale Emi House. OpenAI đọc toàn bộ context, diễn giải ý định, cập nhật memory và đề xuất câu trả lời. Code không phân loại khách bằng keyword, không state machine sale, không tự fine-tune.
 
-## Mở Lab
+## Lab trên website LeafChat
+
+Mở `/lab` trên cùng website LeafChat hoặc chọn **AI Sale Lab** ở thanh bên. Đây là một trang test riêng, nhưng dùng chung domain, giao diện và project Vercel hiện tại. API riêng nằm tại `/api/lab`; webhook Messenger, đơn hàng, tồn kho và bảng sản phẩm production không được gọi.
+
+Server đọc `OPENAI_API_KEY`, `OPENAI_MODEL`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` và `EMI_LAB_SESSION_SECRET` từ Vercel. Browser chỉ nhận cookie phiên được ký, HttpOnly và SameSite=Strict. Mỗi trình duyệt chỉ đọc được lịch sử thuộc phiên của mình. Dữ liệu nằm trong bảng `emi_lab_conversations`; RLS bật, vai trò `anon` và `authenticated` không có quyền trực tiếp.
+
+Migration: `sql/emi_sales_lab.sql`. Lab lưu toàn bộ snapshot persona/catalog cùng lịch sử, memory và kết quả phân tích của từng lượt. Gửi lại cùng request ID không gọi OpenAI hoặc ghi lịch sử lần hai. Revision và lock trong Postgres ngăn hai lượt đồng thời ghi đè nhau.
+
+## Mở Lab local để evaluation
 
 Cần Node.js **24.14+** (đã kiểm tra trên 24.14.1), dependencies hiện có (`npm ci` nếu chưa có).
 
@@ -29,9 +37,9 @@ Nếu thiếu key, UI báo rõ; không dùng câu trả lời giả làm fallbac
 
 ## Audit và kiến trúc
 
-Project gốc dùng Node ESM, OpenAI SDK, Supabase, ba Vercel API (`webhook`, `products`, `facebook-ads`) và giao diện HTML/JS. Workflow dashboard là Next.js riêng. Messenger hiện chạy giới thiệu sản phẩm theo Ads rồi bàn giao nhân viên; chức năng preview hiện tại chạy kịch bản giới thiệu, không phải bộ não sale.
+Project gốc dùng Node ESM, OpenAI SDK, Supabase, bốn Vercel API (`webhook`, `products`, `facebook-ads`, `lab`) và giao diện HTML/JS. Workflow dashboard là Next.js riêng. Messenger hiện chạy giới thiệu sản phẩm theo Ads rồi bàn giao nhân viên; chức năng preview hiện tại chạy kịch bản giới thiệu, không phải bộ não sale.
 
-Chọn server Node riêng vì tái sử dụng được runtime/SDK/HTML mà không thêm Vercel function, không sửa webhook hay đưa credentials Supabase/Page vào Lab. Lab chỉ bind `127.0.0.1`, kiểm tra Host/Origin, JSON content-type, body limit, CSP và escape dữ liệu UI.
+Bản local dùng server Node riêng để chạy evaluation nâng cao. Server chỉ bind `127.0.0.1`, kiểm tra Host/Origin, JSON content-type, body limit, CSP và escape dữ liệu UI.
 
 ```text
 Browser localhost → lab/server.js → lab/service.js
@@ -57,7 +65,17 @@ File bổ sung:
 | `lab/import-example.json`, `lab/.env.example` | Mẫu import và cấu hình |
 | `test/emi-sales-lab.test.js` | Kiểm thử cô lập, HTTP, SDK request, persistence và regression checker |
 
-Chỉ sửa `package.json` để thêm script và `.gitignore` để bỏ qua SQLite. **Không sửa** `api/`, `server/`, `public/`, `sql/`, workflow dashboard, webhook URL hoặc cấu hình production. Không có migration Supabase.
+Phần web bổ sung:
+
+| File | Vai trò |
+| --- | --- |
+| `public/lab/*` | Trang chat test trong shell LeafChat |
+| `api/lab.js` | Vercel Function cùng origin |
+| `lab/cloud/*` | Phiên ký, service chat và Supabase store |
+| `sql/emi_sales_lab.sql` | Bảng Lab, RLS và RPC khóa/commit lượt chat |
+| `test/emi-cloud-lab.test.js` | Kiểm thử context, retry, phiên và isolation |
+
+Phần local vẫn dùng SQLite riêng. Phần web dùng bảng Supabase có tiền tố `emi_lab_`; không đọc hoặc ghi bảng Messenger, sản phẩm, đơn hàng hay tồn kho production.
 
 Database có `lab_meta`, `lab_customers`, `lab_conversations`, `lab_runs`, `lab_feedback`, `lab_cases`. Các record lưu JSON có ID độc lập. SQLite, WAL, SHM và environment đều không commit. `lab_runs` giữ snapshot đầy đủ và version; `lab_feedback` giữ input/context + output + rating + câu sửa + thời gian/model/version. Memory thuộc hội thoại, có người nhận và provenance; không dùng làm source of truth về giá, stock, sale.
 
@@ -84,4 +102,4 @@ npm run lab:evaluate -- --model YOUR_MODEL_ID --case seed-exchange-uncertain
 
 Test unit/integration dùng mock, không gửi Messenger hoặc gọi OpenAI trả phí. CLI evaluation cần key thật, gọi OpenAI, lưu run để xem trong UI. Rubric trọng yếu kiểm tra người mẹ, cân nặng 53, ok/khen màu chưa tự xác nhận, chuyển Ads A sang mẫu B, exchange+add và uncertainty của mẫu xanh. Các rubric chỉ đánh giá output, không tham gia quyết định câu trả lời. Case còn lại cần human review; pass rubric không đồng nghĩa đủ chất lượng production.
 
-Kết quả triển khai: **120/120 test pass**, HTTP/browser đã kiểm tra bằng harness output mô phỏng và SQLite riêng trong RAM. Browser thực xác minh thiếu key báo lỗi, hội thoại vẫn 0 tin, không có output/memory giả. Chưa chạy 22 case với OpenAI thật vì môi trường chưa có `OPENAI_API_KEY`; chưa chứng nhận chất lượng sale của model. Không deploy và không gọi dịch vụ Messenger/Supabase thật trong kiểm thử.
+Kết quả hiện tại: **124/124 test pass**, gồm cả phiên web được ký, isolation giữa hai trình duyệt, origin protection, retry idempotent và khóa lượt đồng thời. Bộ test không gửi Messenger. Các case đánh giá local vẫn cần chạy riêng với OpenAI thật và người sale chấm; schema hợp lệ không tự chứng nhận chất lượng tư vấn.

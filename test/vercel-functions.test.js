@@ -11,9 +11,9 @@ function listJavaScriptFiles(directory) {
   });
 }
 
-test('Vercel Hobby chỉ deploy ba API entrypoint, không biến module nội bộ thành function', () => {
+test('Vercel Hobby chỉ deploy bốn API entrypoint, không biến module nội bộ thành function', () => {
   const apiDirectory = fileURLToPath(new URL('../api/', import.meta.url));
   const functions = listJavaScriptFiles(apiDirectory).map((file) => path.basename(file)).sort();
-  assert.deepEqual(functions, ['facebook-ads.js', 'products.js', 'webhook.js']);
+  assert.deepEqual(functions, ['facebook-ads.js', 'lab.js', 'products.js', 'webhook.js']);
   assert.ok(functions.length <= 12);
 });

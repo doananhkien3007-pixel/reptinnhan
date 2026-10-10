@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103e2c">
+  <meta name="description" content="Không gian thử AI Sale Emi House: chat nhiều lượt và xem Agent hiểu nhu cầu khách.">
+  <title>AI Sale Lab · LeafChat</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/lab/lab.css">
+  <script src="/app-shell.js" defer></script>
+  <script src="/lab/lab.js" defer></script>
+</head>
+<body data-page="lab">
+  <main class="lab-main">
+    <section class="lab-hero">
+      <div>
+        <span class="eyebrow">EMI HOUSE / CONVERSATION LAB</span>
+        <h1>Hiểu khách. Tư vấn đúng.</h1>
+        <p>Bạn đóng vai khách hàng. Emi đọc persona, thông tin sản phẩm và toàn bộ lịch sử để tự quyết định cách trả lời.</p>
+      </div>
+      <div class="lab-controls">
+        <span class="test-badge">● MÔI TRƯỜNG TEST</span>
+        <label class="model-control" for="model">Model OpenAI
+          <input id="model" spellcheck="false" maxlength="120" placeholder="Đang tải model…">
+        </label>
+      </div>
+    </section>
+
+    <p id="status" class="lab-status" role="status" aria-live="polite">Đang kết nối môi trường Lab…</p>
+
+    <div class="lab-layout">
+      <aside class="history-panel panel" aria-labelledby="history-title">
+        <div class="history-heading">
+          <div><span class="eyebrow">HỘI THOẠI ĐÃ LƯU</span><h2 id="history-title">Lịch sử test</h2></div>
+          <button class="new-chat" id="new-chat" type="button"><span aria-hidden="true">＋</span> Tạo mới</button>
+        </div>
+        <nav id="conversation-list" aria-label="Chọn hội thoại"><p class="muted">Chưa có hội thoại.</p></nav>
+        <div class="history-foot"><span class="status-dot"></span><span>Lưu riêng trên Supabase<small>Không dùng dữ liệu production</small></span></div>
+      </aside>
+
+      <section class="chat panel" aria-labelledby="chat-title">
+        <div class="panel-heading">
+          <div><span class="eyebrow">01 / ĐÓNG VAI KHÁCH HÀNG</span><h2 id="chat-title">Trò chuyện với Emi</h2></div>
+          <span class="live-tag"><span class="status-dot"></span>LAB</span>
+        </div>
+        <div class="setup">
+          <label for="customer-name">Tên khách test<input id="customer-name" value="Chị khách test" maxlength="100"></label>
+          <label for="product">Sản phẩm bắt đầu<select id="product" disabled><option>Đang tải sản phẩm…</option></select></label>
+        </div>
+        <div class="chat-meta"><strong id="chat-name">Một cuộc trò chuyện mới</strong><span id="chat-count">Chưa có tin nhắn</span></div>
+        <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text">
+          <div class="empty-state"><span class="empty-icon">“</span><h3>Bắt đầu bằng lời của khách</h3><p>Hỏi giá, kể nhu cầu hoặc nhắc mẫu trước đó.<br>Emi sẽ đọc ngữ cảnh để tiếp tục tư vấn.</p></div>
+        </div>
+        <form id="composer">
+          <label class="sr-only" for="message">Tin nhắn của khách test</label>
+          <textarea id="message" rows="2" maxlength="4000" required placeholder="Ví dụ: Chị mua cho mẹ 60kg, mẫu này có hợp không em?" disabled></textarea>
+          <div class="compose-footer"><span>Enter gửi · Shift + Enter xuống dòng</span><button type="submit" id="send" class="primary" disabled>Gửi tin <span aria-hidden="true">↗</span></button></div>
+        </form>
+      </section>
+
+      <aside class="analysis panel" aria-labelledby="analysis-title">
+        <div class="panel-heading">
+          <div><span class="eyebrow">02 / GÓC NHÌN CỦA AGENT</span><h2 id="analysis-title">Emi hiểu khách thế nào?</h2></div>
+          <span class="analysis-mark" aria-hidden="true">✧</span>
+        </div>
+        <div id="analysis" class="analysis-content">
+          <div class="empty-state"><span class="empty-icon">✧</span><h3>Mỗi câu trả lời có ngữ cảnh</h3><p>Nhu cầu, thông tin đã biết và điều cần hỏi<br>sẽ xuất hiện sau mỗi lượt chat.</p></div>
+        </div>
+        <div class="persona-note">
+          <span class="eyebrow">PERSONA EMI HOUSE</span>
+          <p id="persona">Xưng em, gọi khách là chị. Tư vấn thân thiện, trả lời đúng nhu cầu và hỏi ngắn gọn.</p>
+          <details><summary>Thông tin sản phẩm test</summary><pre id="product-facts"></pre></details>
+        </div>
+      </aside>
+    </div>
+    <footer class="lab-footer">Catalog giả lập · Chỉ chat thử và lưu ngữ cảnh · Không kết nối Messenger, đơn hàng hoặc tồn kho</footer>
+  </main>
+</body>
+</html>

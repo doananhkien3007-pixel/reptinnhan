@@ -19,18 +19,19 @@
   window.appIcon = (name) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || paths.chat) + '</svg>';
   window.paintIcons = (root = document) => root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = appIcon(el.dataset.icon); });
   const page = document.body.dataset.page || 'inbox';
-  const nav = [['inbox', '/', 'chat', 'Hộp thư'], ['products', '/products', 'box', 'Sản phẩm'], ['orders', '/orders', 'log', 'Quản lý đơn'], ['ads', '/ads', 'ads', 'Quảng cáo']];
+  const nav = [['inbox', '/', 'chat', 'Hộp thư'], ['products', '/products', 'box', 'Sản phẩm'], ['orders', '/orders', 'log', 'Quản lý đơn'], ['ads', '/ads', 'ads', 'Quảng cáo'], ['lab', '/lab', 'spark', 'AI Sale Lab']];
   const preferenceKey = 'leafchat.sidebar.collapsed';
   let collapsed = false;
   try { collapsed = window.localStorage.getItem(preferenceKey) === 'true'; } catch { /* Layout works without storage. */ }
   document.body.classList.toggle('sidebar-collapsed', collapsed);
+  const channel = page === 'lab' ? '<span class="channel-label lab-channel">✦ AI TEST LAB</span>' : '<span class="channel-label"><b>f</b> Messenger</span>';
   document.body.insertAdjacentHTML('afterbegin', `<aside class="app-sidebar" id="app-sidebar">
     <a class="app-brand" href="/" aria-label="LeafChat — Trang chủ"><span class="brand-symbol">${appIcon('chat')}</span><span class="brand-name">LeafChat<span class="brand-period">.</span></span></a>
     <div class="workspace-label"><span class="workspace-avatar">W</span><div class="sidebar-copy"><strong>Workspace của bạn</strong><small>Facebook Messenger</small></div><span class="workspace-dot"></span></div>
     <span class="nav-caption">KHÔNG GIAN LÀM VIỆC</span>
     <nav class="app-nav" aria-label="Điều hướng chính">${nav.map(([id, href, icon, label]) => `<a href="${href}" aria-label="${label}" data-tooltip="${label}" ${page === id ? 'aria-current="page"' : ''}>${appIcon(icon)}<span class="nav-label">${label}</span>${page === id ? '<span class="nav-active-dot"></span>' : ''}</a>`).join('')}</nav>
     <div class="sidebar-bottom"><div class="sidebar-note">${appIcon('spark')}<strong>Trợ lý của bạn,<br>luôn sẵn sàng.</strong><p>Một không gian cho mọi kết nối với khách hàng.</p></div><div class="workspace-account"><span class="account-avatar">Q</span><div class="sidebar-copy"><strong>Quản trị viên</strong><small>Quản lý workspace</small></div></div></div>
-  </aside><div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div><header class="app-topbar"><div class="breadcrumb"><button type="button" class="icon-button sidebar-toggle" id="menu-toggle" aria-label="Thu gọn thanh bên" aria-expanded="true" aria-controls="app-sidebar">${appIcon('sidebar')}</button><span class="breadcrumb-workspace">Workspace</span><span class="breadcrumb-separator">${appIcon('arrow')}</span><strong>${nav.find(n => n[0] === page)?.[3] || 'Hộp thư'}</strong></div><div class="topbar-right"><span class="channel-label"><b>f</b> Messenger</span><span class="account-avatar small" aria-label="Quản trị viên">Q</span></div></header>`);
+  </aside><div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div><header class="app-topbar"><div class="breadcrumb"><button type="button" class="icon-button sidebar-toggle" id="menu-toggle" aria-label="Thu gọn thanh bên" aria-expanded="true" aria-controls="app-sidebar">${appIcon('sidebar')}</button><span class="breadcrumb-workspace">Workspace</span><span class="breadcrumb-separator">${appIcon('arrow')}</span><strong>${nav.find(n => n[0] === page)?.[3] || 'Hộp thư'}</strong></div><div class="topbar-right">${channel}<span class="account-avatar small" aria-label="Quản trị viên">Q</span></div></header>`);
   const sidebar = document.getElementById('app-sidebar');
   const toggle = document.getElementById('menu-toggle');
   const mobile = window.matchMedia('(max-width: 760px)');
