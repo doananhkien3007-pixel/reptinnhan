@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>EMI SALES AGENT LAB</title><link rel="stylesheet" href="/lab.css"><script src="/lab.js" defer></script></head>
+<body>
+<header><a class="brand" href="/" aria-label="EMI Sales Agent Lab"><span class="logo">e.</span><span>EMI HOUSE<small>SALES AGENT LAB</small></span></a><div class="header-right"><span class="pill">● MÔI TRƯỜNG TEST ĐỘC LẬP</span><button id="export" class="quiet">Xuất dữ liệu</button></div></header>
+<main>
+<section class="intro"><div><span class="eyebrow">CONVERSATION INTELLIGENCE / LAB 01</span><h1>Hiểu khách. Tư vấn đúng.</h1><p>Thử bộ não sale của Emi trước khi kết nối Messenger.</p></div><div class="model-control"><label for="model">OpenAI model</label><input id="model" spellcheck="false" placeholder="Model ID từ OpenAI"><small id="versions"></small></div></section>
+<div id="status" role="status" aria-live="polite">Đang tải môi trường…</div>
+<div class="workspace">
+<section class="chat panel" aria-labelledby="chat-title">
+<div class="panel-heading"><div><span class="eyebrow">01 / CUSTOMER SIMULATOR</span><h2 id="chat-title">CHAT TEST</h2></div><span class="sandbox-dot">SANDBOX</span></div>
+<div class="setup">
+<div class="field"><label for="customer">Customer test</label><div class="inline"><select id="customer"></select><button id="add-customer" class="square" aria-label="Tạo customer test">＋</button></div></div>
+<div class="field"><label for="entry">Product / Ads giả lập</label><select id="entry"></select></div>
+<div class="toolbar"><button id="new">＋ New Conversation</button><button id="reset" class="quiet">Reset</button></div>
+<label for="conversation-select" class="sr-only">Lịch sử hội thoại</label><select id="conversation-select"><option value="">Hội thoại đã lưu</option></select>
+<details class="shop-data"><summary>Shop facts giả lập · nguồn dữ liệu</summary><pre id="catalog"></pre></details>
+</div>
+<div class="chat-meta"><span id="chat-name">Chị khách test</span><span id="chat-mode">Chưa có hội thoại</span></div>
+<div id="messages" class="messages" aria-live="polite"><div class="empty"><span class="empty-mark">“</span><h3>Bắt đầu bằng lời của khách</h3><p>Viết tự nhiên, không dấu, sai chính tả,<br>hoặc gửi nhiều tin ngắn.</p></div></div>
+<form id="composer"><label for="message" class="sr-only">Tin nhắn khách test</label><textarea id="message" rows="2" placeholder="Ví dụ: c mua cho mẹ 60kg, bụng hơi to…" required maxlength="4000"></textarea><div class="compose-footer"><span>Enter gửi · Shift + Enter xuống dòng</span><button type="submit" class="primary">Gửi tin ↗</button></div></form>
+</section>
+<section class="brain panel" aria-labelledby="brain-title">
+<div class="panel-heading"><div><span class="eyebrow">02 / REASONING SUMMARY</span><h2 id="brain-title">AI BRAIN</h2></div><span class="muted">Kết luận ngắn gọn</span></div>
+<div class="brain-top"><label for="run-select">Chọn lượt để xem / đánh giá</label><select id="run-select"><option value="">Chưa có output</option></select></div>
+<div id="brain" class="brain-content"><div class="empty"><span class="empty-mark">✧</span><h3>Mỗi câu trả lời có căn cứ</h3><p>Understanding, memory và bước tiếp theo<br>sẽ xuất hiện khi Agent trả lời.</p></div></div>
+<div id="evaluation" class="evaluation" hidden><span>Đánh giá câu trả lời này</span><div class="toolbar"><button data-rating="GOOD" class="good">GOOD ✓</button><button data-rating="EDIT">EDIT ✎</button><button data-rating="BAD" class="bad">BAD ×</button><button id="save-case" class="quiet">Lưu test case</button></div><small id="feedback-status"></small></div>
+<div class="memory-section"><div class="memory-heading"><h3>Sales Memory</h3><span>FACT / INFERENCE</span></div><div id="memory"><p class="muted">Chưa có memory.</p></div></div>
+</section>
+</div>
+<section class="cases panel"><div class="panel-heading"><div><span class="eyebrow">03 / EVALUATION WORKBENCH</span><h2>Test cases & so sánh model</h2></div><label class="file-button">Import JSON<input id="import" type="file" accept=".json,application/json" hidden></label></div><div class="case-controls"><div class="field"><label for="case-select">Case đã lưu</label><select id="case-select"></select></div><button id="replay" class="primary">Chạy lại bằng model ở trên ↗</button><button id="suite" class="quiet">Chạy toàn bộ case</button></div><p id="expectation" class="expectation"></p><div id="comparisons" class="comparisons"><p class="muted">Chạy cùng case với model khác để so sánh cùng input/context.</p></div></section>
+<footer>Dữ liệu sản phẩm và Ads đều giả lập. Lab chỉ gọi OpenAI · không gửi Messenger · không tạo đơn hay đổi tồn kho.</footer>
+</main>
+<dialog id="customer-dialog"><form id="customer-form"><span class="eyebrow">CUSTOMER TEST</span><h2>Tạo khách test</h2><label for="customer-name">Tên hiển thị</label><input id="customer-name" required maxlength="100" placeholder="Chị Mai"><label for="customer-profile">Hồ sơ test (tùy chọn)</label><textarea id="customer-profile" maxlength="2000" placeholder="Chỉ thông tin đã biết; không nhập dữ liệu nhạy cảm thật."></textarea><div class="toolbar"><button type="button" data-close class="quiet">Hủy</button><button type="submit" class="primary">Tạo customer</button></div></form></dialog>
+<dialog id="feedback-dialog"><form id="feedback-form"><span class="eyebrow">HUMAN FEEDBACK</span><h2 id="rating-title">EDIT câu trả lời</h2><div id="correction-field"><label for="correction">Câu sale thật nên trả lời</label><textarea id="correction" maxlength="4000" rows="4"></textarea></div><label for="feedback-note">Nhận xét / lỗi cần sửa</label><textarea id="feedback-note" maxlength="4000" rows="2"></textarea><p class="muted">EDIT / BAD tự tạo evaluation case. Feedback không tự đổi instructions.</p><div class="toolbar"><button type="button" data-close class="quiet">Hủy</button><button type="submit" class="primary">Lưu đánh giá</button></div></form></dialog>
+<dialog id="case-dialog"><form id="case-form"><span class="eyebrow">REPLAY SNAPSHOT</span><h2>Lưu test case</h2><label for="case-title">Tên case</label><input id="case-title" required maxlength="200"><label for="case-expectation">Kết quả mong muốn</label><textarea id="case-expectation" maxlength="4000" rows="3"></textarea><div class="toolbar"><button type="button" data-close class="quiet">Hủy</button><button type="submit" class="primary">Lưu snapshot</button></div></form></dialog>
+</body></html>

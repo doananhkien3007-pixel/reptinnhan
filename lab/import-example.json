@@ -1,0 +1,152 @@
+{
+  "title": "Import hội thoại test mua cho mẹ",
+  "expectation": "60kg thuộc mẹ, không thuộc khách",
+  "input": {
+    "catalog": {
+      "version": "lab-catalog-1",
+      "notice": "Toàn bộ dữ liệu là giả lập để test, không phải sản phẩm hay chính sách bán hàng thật.",
+      "policies": {
+        "shipping_fee": null,
+        "delivery_time": null,
+        "returns": null,
+        "stock": null
+      },
+      "products": [
+        {
+          "id": "LAB-A",
+          "sku": "LAB-VAY-HOA",
+          "name": "Váy hoa tím",
+          "price": 350000,
+          "sale_price": 279000,
+          "material": "Cotton pha (giả lập)",
+          "colors": [
+            "tím",
+            "hồng"
+          ],
+          "size_guide": [
+            {
+              "size": "M",
+              "weight_kg_min": 48,
+              "weight_kg_max": 55,
+              "bust_cm_max": 90
+            },
+            {
+              "size": "L",
+              "weight_kg_min": 56,
+              "weight_kg_max": 63,
+              "bust_cm_max": 96
+            }
+          ],
+          "fit": "Suông nhẹ, số đo ngực cần đối chiếu khi khách lo chật",
+          "description": "Váy hoa dài qua gối; chưa có số đo dài váy",
+          "media": [],
+          "stock": null
+        },
+        {
+          "id": "LAB-B",
+          "sku": "LAB-XANH",
+          "name": "Váy xanh trơn",
+          "price": 320000,
+          "sale_price": null,
+          "material": "Viscose (giả lập)",
+          "colors": [
+            "xanh"
+          ],
+          "size_guide": [
+            {
+              "size": "M",
+              "weight_kg_min": 48,
+              "weight_kg_max": 55,
+              "bust_cm_max": 94
+            },
+            {
+              "size": "L",
+              "weight_kg_min": 56,
+              "weight_kg_max": 63,
+              "bust_cm_max": 100
+            }
+          ],
+          "fit": "Suông rộng",
+          "description": "Mẫu xanh trơn dùng kiểm thử tham chiếu hồi nãy",
+          "media": [],
+          "stock": null
+        },
+        {
+          "id": "LAB-C",
+          "sku": "LAB-BONG-VANG",
+          "name": "Váy bông vàng",
+          "price": 299000,
+          "sale_price": null,
+          "material": "Cotton pha (giả lập)",
+          "colors": [
+            "vàng"
+          ],
+          "size_guide": [],
+          "fit": null,
+          "description": "Mẫu dùng kiểm thử mua thêm, chưa có bảng size",
+          "media": [],
+          "stock": null
+        },
+        {
+          "id": "LAB-D",
+          "sku": "LAB-XANH-HOA",
+          "name": "Váy hoa xanh",
+          "price": null,
+          "sale_price": null,
+          "material": null,
+          "colors": [
+            "xanh"
+          ],
+          "size_guide": [],
+          "fit": null,
+          "description": "Mẫu cố ý thiếu dữ liệu và gây mơ hồ với mẫu xanh trơn",
+          "media": [],
+          "stock": null
+        }
+      ],
+      "ads": [
+        {
+          "id": "LAB-ADS-A",
+          "name": "Ads A · Váy hoa tím",
+          "product_id": "LAB-A",
+          "copy": "Váy hoa tím · dữ liệu quảng cáo giả lập"
+        },
+        {
+          "id": "LAB-ADS-B",
+          "name": "Ads B · Xanh trơn",
+          "product_id": "LAB-B",
+          "copy": "Mẫu xanh trơn · dữ liệu quảng cáo giả lập"
+        }
+      ]
+    },
+    "customer": {
+      "id": "import-test",
+      "name": "Chị khách import",
+      "profile": ""
+    },
+    "entry": {
+      "product_id": "LAB-A",
+      "ad_id": null
+    },
+    "history": [
+      {
+        "id": "u1",
+        "role": "user",
+        "text": "chị muốn xem mẫu tím"
+      },
+      {
+        "id": "a1",
+        "role": "assistant",
+        "text": "Dạ chị mua cho mình hay cho người nhà ạ?"
+      }
+    ],
+    "memory": [],
+    "messages": [
+      {
+        "id": "u2",
+        "role": "user",
+        "text": "chị mua cho mẹ 60kg"
+      }
+    ]
+  }
+}

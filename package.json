@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "lab": "node --env-file-if-exists=lab/.env.local lab/server.js",
+    "test:lab": "node --test test/emi-sales-lab.test.js",
+    "lab:evaluate": "node --env-file-if-exists=lab/.env.local lab/evaluate.js"
   },
   "repository": {
     "type": "git",

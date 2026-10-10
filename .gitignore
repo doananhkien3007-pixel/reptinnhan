@@ -10,3 +10,7 @@ dist/
 !.env.example
 !**/.env.example
 *.tsbuildinfo
+
+# Independent EMI Sales Agent Lab database / evaluation exports
+lab/data/*
+!lab/data/.gitkeep
