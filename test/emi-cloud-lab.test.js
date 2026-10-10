@@ -27,23 +27,27 @@ class TestStore {
   }
   async release(session, id, token) { const r = this.rows.get(id); if (r?.session === session && r.token === token) r.token = null; }
 }
-const output = () => ({ understanding: 'Khách mua cho mẹ, đang hỏi chọn size.', current_product_id: 'LAB-A', referenced_products: [], new_facts: [], memory_updates: [], concerns: [], purchase_intent: { description: 'Chưa xác nhận mua.', confirmed: false, transactions: [] }, next_best_action: 'Tư vấn đúng người mặc.', missing_information: [], uncertainties: [], human_needed: { needed: false, reason: '' }, suggested_reply: 'Dạ chị mua cho mẹ thì em đối chiếu số đo của mẹ với bảng size ạ.' });
+const output = () => ({ understanding: 'Khách mua cho mẹ, đang hỏi chọn size.', current_product_id: 'LAB-A', referenced_products: [], new_facts: [], memory_updates: [], concerns: [], purchase_intent: { description: 'Chưa xác nhận mua.', confirmed: false, transactions: [] }, next_best_action: 'Tư vấn đúng người mặc.', missing_information: [], uncertainties: [], human_needed: { needed: false, reason: '' }, media_ids: ['LAB-A-IMG-1','LAB-A-VID-1'], suggested_reply: 'Dạ chị mua cho mẹ thì em đối chiếu số đo của mẹ với bảng size ạ.' });
 const brain = async () => ({ output: output(), actual_model: 'test-model', versions });
 
 test('cloud chat sends full persisted context and assistant config; request retries do not duplicate paid model calls', async () => {
   const store = new TestStore(); const inputs = []; const calls = [];
   const service = new CloudLabService(store, async (input, model, config, options) => { inputs.push(structuredClone(input)); calls.push({ model, options }); return brain(); });
   const session = randomUUID(); const c = await service.create(session, { product_id: 'LAB-A', assistant_config: { model: 'test-model', custom_instructions: 'Tư vấn theo dịp mặc.' } });
+  store.rows.get(c.id).state.catalog.version = 'lab-catalog-1';
+  store.rows.get(c.id).state.catalog.products.forEach(product => { product.media = []; });
   const first = { request_id: randomUUID(), revision: 0, message: 'Chị mua cho mẹ 60kg', model: 'test-model' };
   const r = await service.turn(session, c.id, first);
   assert.equal(r.conversation.state.history.length, 2);
   assert.equal(inputs[0].catalog.products[0].id, 'LAB-A');
+  assert.equal(inputs[0].catalog.version, 'lab-catalog-2'); assert.equal(inputs[0].catalog.products[0].media.length, 3);
   assert.deepEqual(c.state.assistant_config, { model: 'test-model', custom_instructions: 'Tư vấn theo dịp mặc.' });
   assert.deepEqual(calls[0], { model: 'test-model', options: { customInstructions: 'Tư vấn theo dịp mặc.' } });
   assert.equal((await service.turn(session, c.id, first)).replayed, true);
   assert.equal(inputs.length, 1);
   await service.turn(session, c.id, { request_id: randomUUID(), revision: 1, message: 'Vậy mẹ mặc size nào?', model: 'test-model' });
   assert.equal(inputs[1].history.length, 2); assert.equal(inputs[1].history[0].text, first.message);
+  assert.deepEqual(inputs[1].history[1].media_ids, ['LAB-A-IMG-1','LAB-A-VID-1']);
   assert.equal((await store.get(session, c.id)).state.history.length, 4);
   await assert.rejects(service.turn(randomUUID(), c.id, first), e => e.status === 404);
 });
@@ -91,7 +95,7 @@ test('cloud deployment keeps server credentials private and translates database 
   await assert.rejects(store.result(Promise.resolve({ error: { code: 'other', message: 'secret-key' } })), e => e.status === 503 && !e.message.includes('secret-key'));
   const ui = readFileSync(new URL('../public/lab/lab.js', import.meta.url), 'utf8');
   assert.doesNotMatch(ui, /SUPABASE_SECRET_KEY|OPENAI_API_KEY\s*[:=]|graph\.facebook/);
-  assert.match(ui, /assistant_config/); assert.doesNotMatch(ui, /set_system_prompt|preview_reply|api\/webhook/);
+  assert.match(ui, /assistant_config/); assert.match(ui, /message-media/); assert.match(ui, /media_ids/); assert.doesNotMatch(ui, /set_system_prompt|preview_reply|api\/webhook/);
   const sql = readFileSync(new URL('../sql/emi_sales_lab.sql', import.meta.url), 'utf8');
   assert.match(sql, /enable row level security/); assert.doesNotMatch(sql, /security definer/i);
   assert.match(sql, /revoke all on function/);

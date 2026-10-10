@@ -83,7 +83,11 @@ Database có `lab_meta`, `lab_customers`, `lab_conversations`, `lab_runs`, `lab_
 
 ## Structured Output và giới hạn
 
-Các trường chính: `understanding`, `current_product_id`, `referenced_products`, `new_facts`, `memory_updates`, `concerns`, `purchase_intent`, `next_best_action`, `missing_information`, `uncertainties`, `human_needed`, `suggested_reply`.
+Các trường chính: `understanding`, `current_product_id`, `referenced_products`, `new_facts`, `memory_updates`, `concerns`, `purchase_intent`, `next_best_action`, `missing_information`, `uncertainties`, `human_needed`, `media_ids`, `suggested_reply`.
+
+`media_ids` cho phép Agent tự chọn tối đa 4 ảnh và 1 video có thật trong catalog Lab. Server từ chối ID bịa hoặc ID trùng; UI hiển thị media trước câu trả lời chữ và lưu danh sách đã gửi vào history để model tránh lặp. Catalog giả lập có ảnh SVG và video WebM riêng cho Lab. Ở lượt tư vấn đầu của một mẫu, persona hướng Agent chủ động gửi media, báo giá/sale và hỏi gộp chiều cao + cân nặng nếu còn thiếu; quyết định vẫn do model dựa trên toàn bộ context, không có keyword/IF-ELSE chọn flow.
+
+Hội thoại web cũ được bổ sung riêng danh sách media Lab ở lượt tiếp theo để vẫn giữ lịch sử đang test. Các shop facts khác trong snapshot không bị thay thế.
 
 `purchase_intent.transactions` tách source/target/action/quantity/confirmation. Exchange là một thao tác có nguồn và đích; add là thao tác khác. Những thao tác này **không** thực thi đơn hàng. Chỉ xuất kết luận, không yêu cầu hay hiển thị chain-of-thought.
 

@@ -19,8 +19,13 @@ export function createLabServer({store=new LabStore(resolve(root,'data/emi-sales
       const url=new URL(req.url,`http://${host}`);
       if(req.method==='GET' && ['/', '/lab.css','/lab.js'].includes(url.pathname)) {
         const file=url.pathname==='/'?'index.html':url.pathname.slice(1);
-        res.writeHead(200,{'content-type':file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});
+        res.writeHead(200,{'content-type':file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});
         return res.end(readFileSync(resolve(root,'web',file)));
+      }
+      const mediaName=url.pathname.startsWith('/lab/media/')?url.pathname.slice('/lab/media/'.length):'';
+      if(req.method==='GET' && ['lab-a-front.svg','lab-a-detail.svg','lab-a-video-poster.svg','lab-a-demo.webm','lab-b-front.svg','lab-c-front.svg'].includes(mediaName)) {
+        res.writeHead(200,{'content-type':mediaName.endsWith('.svg')?'image/svg+xml':'video/webm','cache-control':'no-store','x-content-type-options':'nosniff'});
+        return res.end(readFileSync(resolve(root,'../public/lab/media',mediaName)));
       }
       if(req.method==='GET') {
         if(url.pathname==='/lab-api/bootstrap')return send(res,200,{catalog,versions,default_model:process.env.EMI_LAB_MODEL||process.env.OPENAI_MODEL||settings.default_model,key_available:!!process.env.OPENAI_API_KEY,customers:store.list('customers'),conversations:store.list('conversations'),cases:store.list('cases'),runs:store.list('runs'),feedback:store.list('feedback')});

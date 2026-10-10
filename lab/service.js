@@ -14,6 +14,7 @@ export function validateInput(input) {
   const ids=new Set();
   for(const m of [...input.history,...input.messages]) {
     text(m.id,'Message ID',120);text(m.text,'Message',4000);check(['user','assistant'].includes(m.role),'Role không hợp lệ');check(!ids.has(m.id),'Message ID bị trùng');ids.add(m.id);
+    if(m.media_ids!==undefined)check(m.role==='assistant'&&Array.isArray(m.media_ids)&&m.media_ids.length<=5&&m.media_ids.every(id=>typeof id==='string'),'Message media không hợp lệ');
   }
   check(input.messages.every(m=>m.role==='user'),'Tin mới phải là role user');
   check(input.customer && typeof input.customer==='object','Thiếu customer');
@@ -39,7 +40,7 @@ export class LabService {
       check(conversation.history.length+body.messages.length+1<=this.config.max_history_messages,'Hội thoại quá dài; lưu case rồi mở New Conversation để tiếp tục. Không âm thầm cắt context.');
       const input=validateInput({catalog:this.catalog,customer:conversation.customer,entry:conversation.entry,history:conversation.history,memory:conversation.memory,messages:body.messages.map(message=>({id:randomUUID(),role:'user',text:text(message,'Tin nhắn')}))});
       const run=await this.run(input,body.model,{conversation_id:id});
-      const updated={...conversation,history:[...conversation.history,...input.messages,{id:randomUUID(),role:'assistant',text:run.output.suggested_reply,run_id:run.id}],memory:applyMemory(conversation.memory,run.output.memory_updates),run_ids:[...conversation.run_ids,run.id],revision:conversation.revision+1,updated_at:now()};
+      const updated={...conversation,history:[...conversation.history,...input.messages,{id:randomUUID(),role:'assistant',text:run.output.suggested_reply,media_ids:run.output.media_ids,run_id:run.id}],memory:applyMemory(conversation.memory,run.output.memory_updates),run_ids:[...conversation.run_ids,run.id],revision:conversation.revision+1,updated_at:now()};
       this.store.atomic(()=>{this.store.put('runs',run);this.store.put('conversations',updated);});
       return {conversation:updated,run};
     });

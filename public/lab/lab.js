@@ -47,20 +47,44 @@ function productFacts() {
   const product = products.find(p => p.id === $('product').value);
   $('product-facts').textContent = product ? JSON.stringify(product, null, 2) : 'Chọn một sản phẩm để xem dữ liệu test.';
 }
+function mediaIndex() {
+  const products = state.conversation?.state.catalog.products || state.boot?.products || [];
+  return new Map(products.flatMap(product => (product.media || []).map(media => [media.id, { ...media, product_name: product.name }])));
+}
+function safeMediaUrl(value) {
+  return typeof value === 'string' && /^\/lab\/media\/[a-z0-9._-]+$/i.test(value) ? value : '';
+}
+function renderMedia(ids = []) {
+  const media = mediaIndex();
+  const items = ids.map(id => media.get(id)).filter(Boolean);
+  if (!items.length) return '';
+  return `<div class="message-media" aria-label="Media sản phẩm Emi gửi">${items.map(item => {
+    const url = safeMediaUrl(item.url); if (!url) return '';
+    const label = esc(item.label || item.alt || item.product_name || 'Media sản phẩm');
+    if (item.type === 'video') {
+      const poster = safeMediaUrl(item.poster_url);
+      return `<figure class="media-item video"><video controls playsinline preload="metadata"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${label}"><source src="${esc(url)}" type="video/webm">Trình duyệt chưa hỗ trợ video.</video><figcaption><span aria-hidden="true">▶</span>${label}</figcaption></figure>`;
+    }
+    return `<figure class="media-item"><img src="${esc(url)}" alt="${label}" loading="lazy"><figcaption>${label}</figcaption></figure>`;
+  }).join('')}</div>`;
+}
 function renderChat() {
   const history = state.conversation?.state.history || [];
   $('chat-name').textContent = state.conversation?.state.customer.name || 'Một cuộc trò chuyện mới';
   $('chat-count').textContent = state.busy ? 'Emi đang trả lời…' : history.length ? `${history.length} tin · ${state.conversation.revision} lượt` : 'Chưa có tin nhắn';
-  $('messages').innerHTML = history.length ? history.map(m => `<div class="message-row ${m.role === 'user' ? 'user' : 'assistant'}"><span class="message-label">${m.role === 'user' ? 'KHÁCH TEST' : 'EMI HOUSE'}</span><div class="bubble">${esc(m.text)}</div>${m.run ? `<button type="button" class="analysis-link" data-run="${esc(m.run.id)}" aria-pressed="${m.run.id === state.run?.id}">Xem Emi hiểu khách ở lượt này ↗</button>` : ''}</div>`).join('') : '<div class="empty-state"><span class="empty-icon">“</span><h3>Bắt đầu bằng lời của khách</h3><p>Hỏi giá, kể nhu cầu hoặc nhắc mẫu trước đó.<br>Emi sẽ đọc ngữ cảnh để tiếp tục tư vấn.</p></div>';
+  $('messages').innerHTML = history.length ? history.map(m => `<div class="message-row ${m.role === 'user' ? 'user' : 'assistant'}"><span class="message-label">${m.role === 'user' ? 'KHÁCH TEST' : 'EMI HOUSE'}</span>${m.role === 'assistant' ? renderMedia(m.media_ids || m.run?.output?.media_ids || []) : ''}<div class="bubble">${esc(m.text)}</div>${m.run ? `<button type="button" class="analysis-link" data-run="${esc(m.run.id)}" aria-pressed="${m.run.id === state.run?.id}">Xem Emi hiểu khách ở lượt này ↗</button>` : ''}</div>`).join('') : '<div class="empty-state"><span class="empty-icon">“</span><h3>Bắt đầu bằng lời của khách</h3><p>Hỏi giá, kể nhu cầu hoặc nhắc mẫu trước đó.<br>Emi sẽ đọc ngữ cảnh để tiếp tục tư vấn.</p></div>';
   if (state.busy) $('messages').insertAdjacentHTML('beforeend', '<div class="thinking" role="status">Emi đang đọc ngữ cảnh hội thoại…</div>');
-  $('messages').scrollTop = $('messages').scrollHeight;
+  const lastReplyWithMedia = $('messages').querySelector('.message-row.assistant:last-of-type:has(.message-media)');
+  $('messages').scrollTop = lastReplyWithMedia && !state.busy ? Math.max(0, lastReplyWithMedia.offsetTop - $('messages').offsetTop - 8) : $('messages').scrollHeight;
 }
 function renderAnalysis() {
   const o = state.run?.output;
   if (!o) { $('analysis').innerHTML = '<div class="empty-state"><span class="empty-icon">✧</span><h3>Mỗi câu trả lời có ngữ cảnh</h3><p>Nhu cầu, thông tin đã biết và điều cần hỏi<br>sẽ xuất hiện sau mỗi lượt chat.</p></div>'; return; }
   const card = (title, content, cls = '') => `<article class="analysis-card ${cls}"><h3>${esc(title)}</h3>${content}</article>`;
   const list = values => values.length ? `<ul>${values.map(v => `<li>${esc(v)}</li>`).join('')}</ul>` : '<p>Chưa có.</p>';
+  const selectedMedia = (o.media_ids || []).map(id => mediaIndex().get(id)).filter(Boolean);
   $('analysis').innerHTML = card('Khách đang muốn gì?', `<p>${esc(o.understanding)}</p>`, 'understanding') +
+    (selectedMedia.length ? card('Media Emi chọn gửi', list(selectedMedia.map(m => `${m.type === 'video' ? 'Video' : 'Ảnh'} · ${m.label || m.alt || m.id}`))) : '') +
     card('Thông tin mới từ khách', list(o.new_facts.map(f => `${f.kind === 'fact' ? 'Khách đã nói' : 'Chưa xác nhận'} · ${f.subject} · ${f.key}: ${f.value}`))) +
     card('Nhu cầu và băn khoăn', `<p>${esc(o.purchase_intent.description)}</p>${o.concerns.length ? list(o.concerns) : ''}`) +
     card('Điều Emi cần làm tiếp', `<p>${esc(o.next_best_action)}</p>`) +

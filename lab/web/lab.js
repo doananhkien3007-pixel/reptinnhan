@@ -17,6 +17,9 @@ async function refresh(){
 }
 function renderRunSelect(){const runs=state.conversation?state.data.runs.filter(r=>r.conversation_id===state.conversation.id):state.data.runs;$('run-select').innerHTML='<option value="">Chọn output</option>'+options(runs.map(r=>[r.id,`${r.model} · ${new Date(r.created_at).toLocaleTimeString('vi-VN')} · ${r.input.messages.map(m=>m.text).join(' / ').slice(0,45)}`]),state.run?.id);if(state.run&&!runs.some(r=>r.id===state.run.id))$('run-select').insertAdjacentHTML('beforeend',options([[state.run.id,`${state.run.model} · Replay case`]],state.run.id));}
 function product(id){return state.run?.input.catalog.products.find(p=>p.id===id)?.name||state.data.catalog.products.find(p=>p.id===id)?.name||'Chưa xác định';}
+function mediaIndex(){const catalog=state.run?.input.catalog||state.data.catalog;return new Map(catalog.products.flatMap(p=>(p.media||[]).map(m=>[m.id,{...m,product_name:p.name}])));}
+function safeMediaUrl(value){return typeof value==='string'&&/^\/lab\/media\/[a-z0-9._-]+$/i.test(value)?value:'';}
+function renderMedia(ids=[]){const index=mediaIndex(),items=ids.map(id=>index.get(id)).filter(Boolean);return items.length?`<div class="lab-media">${items.map(item=>{const url=safeMediaUrl(item.url),label=esc(item.label||item.alt||item.product_name);if(!url)return'';return item.type==='video'?`<figure><video controls playsinline preload="metadata"${safeMediaUrl(item.poster_url)?` poster="${esc(safeMediaUrl(item.poster_url))}"`:''}><source src="${esc(url)}" type="video/webm"></video><figcaption>▶ ${label}</figcaption></figure>`:`<figure><img src="${esc(url)}" alt="${label}" loading="lazy"><figcaption>${label}</figcaption></figure>`;}).join('')}</div>`:'';}
 function card(title,content,cls=''){return `<article class="brain-card ${cls}"><h3>${esc(title)}</h3>${content}</article>`;}
 const list=values=>values.length?`<ul>${values.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:'<p class="muted">Không có</p>';
 function renderMemory(memory){$('memory').innerHTML=memory?.length?memory.map(m=>`<div class="memory-row"><span class="kind ${m.kind}">${esc(m.kind.toUpperCase())}</span><div><strong>${esc(m.subject)} · ${esc(m.key)}</strong>: ${esc(m.value)}<small>Nguồn ${esc(m.evidence_message_id)}: “${esc(m.evidence)}”</small></div></div>`).join(''):'<p class="muted">Chưa có memory.</p>';}
@@ -26,6 +29,7 @@ function renderBrain(){
  const o=run.output;
  $('brain').innerHTML=card('Understanding',`<p>${esc(o.understanding)}</p>`,'wide')+
  card('Current Product / Referenced Products',`<p><strong>${esc(product(o.current_product_id))}</strong></p>`+list(o.referenced_products.map(p=>`${p.reference} → ${p.product_id||p.candidates.join(', ')||'?'} · ${p.relation} · ${p.certainty}`)))+
+ card('Media đã chọn',list((o.media_ids||[]).map(id=>{const m=mediaIndex().get(id);return m?`${m.type==='video'?'Video':'Ảnh'} · ${m.label||m.alt||id}`:id;})))+
  card('New Facts',list(o.new_facts.map(f=>`${f.kind.toUpperCase()} · ${f.subject} · ${f.key}: ${f.value}`)))+
  card('Customer Concern / Objection',list(o.concerns))+
  card('Purchase Intent',`<p>${esc(o.purchase_intent.description)}</p>`+list(o.purchase_intent.transactions.map(t=>`${t.action}: ${t.source_product_id||'—'} → ${t.target_product_id||'?'} · ${t.quantity||'?'} món · ${t.confirmation} · ${t.description}`)))+
@@ -38,10 +42,10 @@ function renderBrain(){
  const feedback=state.data.feedback.find(f=>f.run_id===run.id);$('feedback-status').textContent=feedback?`${feedback.rating} · ${feedback.corrected_reply||feedback.note||'Đã lưu đánh giá'}`:'';
 }
 function renderChat(){
- const preview=state.run?.case_id?state.run:null;const c=preview?{customer:preview.input.customer,id:preview.id,history:[...preview.input.history,...preview.input.messages,{role:'assistant',text:preview.output.suggested_reply,run_id:preview.id}]}:state.conversation,history=c?.history||[];
+ const preview=state.run?.case_id?state.run:null;const c=preview?{customer:preview.input.customer,id:preview.id,history:[...preview.input.history,...preview.input.messages,{role:'assistant',text:preview.output.suggested_reply,media_ids:preview.output.media_ids,run_id:preview.id}]}:state.conversation,history=c?.history||[];
  $('chat-name').textContent=c?.customer.name||'Chị khách test';$('chat-mode').textContent=state.sending?'Agent đang xử lý…':preview?'Case snapshot · New Conversation để chat':c?`${history.length} tin · ${c.id.slice(0,8)}`:'Chưa có hội thoại';
  if(!history.length&&!state.pending.length&&!state.inflight.length){$('messages').innerHTML='<div class="empty"><span class="empty-mark">“</span><h3>Bắt đầu bằng lời của khách</h3><p>Viết tự nhiên, không dấu, sai chính tả,<br>hoặc gửi nhiều tin ngắn.</p></div>';return;}
- $('messages').innerHTML=history.map(m=>`<div class="bubble ${m.role==='user'?'user':'agent'} ${m.run_id===state.run?.id?'selected':''}" ${m.run_id?`data-run="${esc(m.run_id)}" tabindex="0" role="button" aria-label="Xem AI Brain của câu trả lời"`:''}><small>${m.role==='user'?'KHÁCH TEST':'EMI SALE'}</small>${esc(m.text)}</div>`).join('')+[...state.inflight,...state.pending].map(t=>`<div class="bubble user pending"><small>ĐANG CHỜ</small>${esc(t)}</div>`).join('');
+ $('messages').innerHTML=history.map(m=>`<div class="bubble ${m.role==='user'?'user':'agent'} ${m.run_id===state.run?.id?'selected':''}" ${m.run_id?`data-run="${esc(m.run_id)}" tabindex="0" role="button" aria-label="Xem AI Brain của câu trả lời"`:''}><small>${m.role==='user'?'KHÁCH TEST':'EMI SALE'}</small>${m.role==='assistant'?renderMedia(m.media_ids||state.data.runs.find(r=>r.id===m.run_id)?.output.media_ids||[]):''}${esc(m.text)}</div>`).join('')+[...state.inflight,...state.pending].map(t=>`<div class="bubble user pending"><small>ĐANG CHỜ</small>${esc(t)}</div>`).join('');
  $('messages').scrollTop=$('messages').scrollHeight;
 }
 async function createConversation(){state.conversation=await api('/conversations',{customer_id:$('customer').value,entry:entry()});state.run=null;await refresh();renderChat();renderBrain();controls();renderCatalog();}

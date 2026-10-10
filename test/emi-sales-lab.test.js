@@ -12,7 +12,7 @@ import { validateBrain,applyMemory } from '../lab/schema.js';
 import { evaluateCriticalCase } from '../lab/evaluation.js';
 import { SEED_CASES } from '../lab/fixtures.js';
 const input=()=>structuredClone(SEED_CASES.find(c=>c.id==='seed-mother').input);
-const output=()=>({understanding:'Khách mua cho mẹ 60kg.',current_product_id:'LAB-A',referenced_products:[],new_facts:[],memory_updates:[],concerns:[],purchase_intent:{description:'Đang tư vấn cho mẹ, chưa chọn mua.',confirmed:false,transactions:[]},next_best_action:'Tư vấn theo người mặc.',missing_information:[],uncertainties:[],human_needed:{needed:false,reason:''},suggested_reply:'Dạ mẹ 60kg thì theo bảng mẫu này mình tham khảo L ạ.'});
+const output=()=>({understanding:'Khách mua cho mẹ 60kg.',current_product_id:'LAB-A',referenced_products:[],new_facts:[],memory_updates:[],concerns:[],purchase_intent:{description:'Đang tư vấn cho mẹ, chưa chọn mua.',confirmed:false,transactions:[]},next_best_action:'Tư vấn theo người mặc.',missing_information:[],uncertainties:[],human_needed:{needed:false,reason:''},media_ids:['LAB-A-IMG-1','LAB-A-VID-1'],suggested_reply:'Dạ mẹ 60kg thì theo bảng mẫu này mình tham khảo L ạ.'});
 const brain=async()=>({output:output(),response_id:'mock',actual_model:'test-model',versions});
 const memory=()=>({subject:'recipient:mother',key:'weight_kg',value:'60',kind:'fact',evidence_message_id:'message-0',evidence:'mẹ 60kg'});
 function setup(customBrain=brain){const store=new LabStore(':memory:');return {store,service:new LabService(store,catalog,config,customBrain)};}
@@ -20,7 +20,7 @@ function setup(customBrain=brain){const store=new LabStore(':memory:');return {s
 test('schema và memory reject malformed output, invented IDs and invented evidence',()=>{
  assert.doesNotThrow(()=>validateBrain(output(),input()));
  const facts=output();facts.new_facts=[memory()];facts.memory_updates=[{op:'upsert',...memory()}];assert.doesNotThrow(()=>validateBrain(facts,input()));
- for(const mutate of [o=>delete o.understanding,o=>o.chain_of_thought='hidden',o=>o.current_product_id='real-product',o=>o.suggested_reply='',o=>o.human_needed.needed='yes',o=>o.purchase_intent.transactions=[{action:'buy',source_product_id:null,target_product_id:'LAB-A',quantity:0,confirmation:'confirmed',description:'x'}],o=>o.new_facts=[{...memory(),evidence:'khách 60kg'}],o=>o.new_facts=[{...memory(),kind:'confirmed'}]]){const o=output();mutate(o);assert.throws(()=>validateBrain(o,input()));}
+ for(const mutate of [o=>delete o.understanding,o=>o.chain_of_thought='hidden',o=>o.current_product_id='real-product',o=>o.media_ids=['INVENTED-MEDIA'],o=>o.media_ids=['LAB-A-IMG-1','LAB-A-IMG-1'],o=>o.suggested_reply='',o=>o.human_needed.needed='yes',o=>o.purchase_intent.transactions=[{action:'buy',source_product_id:null,target_product_id:'LAB-A',quantity:0,confirmation:'confirmed',description:'x'}],o=>o.new_facts=[{...memory(),evidence:'khách 60kg'}],o=>o.new_facts=[{...memory(),kind:'confirmed'}]]){const o=output();mutate(o);assert.throws(()=>validateBrain(o,input()));}
  const other=input();other.history=[{id:'bot1',role:'assistant',text:'chị nặng 60kg'}];const o=output();o.new_facts=[{...memory(),evidence_message_id:'bot1',evidence:'60kg'}];assert.throws(()=>validateBrain(o,other),/assistant/);
 });
 
@@ -35,6 +35,7 @@ test('OpenAI request uses configurable model, strict schema, store:false, no too
  let request;const client={responses:{create:async p=>{request=p;return {status:'completed',id:'r',model:'configured-model',output_text:JSON.stringify(output()),usage:{total_tokens:30}};}}};
  const result=await generateBrain(input(),'configured-model',config,{client,customInstructions:'Ưu tiên hỏi dịp mặc trước khi đề xuất.'});
  assert.equal(request.model,'configured-model');assert.equal(request.store,false);assert.equal(request.text.format.strict,true);assert.equal(request.text.format.schema.additionalProperties,false);assert.equal(request.tools,undefined);assert.equal(request.reasoning,undefined);assert.match(request.instructions,/không xuất chain-of-thought/);assert.match(request.instructions,/Ưu tiên hỏi dịp mặc/);assert.match(request.instructions,/không được ghi đè quy tắc an toàn/);assert.deepEqual(result.output,output());
+ assert.match(request.instructions,/chiều cao và cân nặng/);assert.match(request.instructions,/media_ids/);
  assert.equal(JSON.parse(request.input[0].content.split('\n').slice(1).join('\n')).customer.id,'test-default');
  for(const response of [{status:'incomplete',output_text:JSON.stringify(output())},{status:'completed',output_text:''},{status:'completed',output_text:'invalid'}])await assert.rejects(generateBrain(input(),'model',config,{client:{responses:{create:async()=>response}}}));
 });
@@ -44,6 +45,7 @@ test('multi-message turn persists input/output, reset only conversation memory, 
  const c=service.create({customer_id:'test-default',entry:{ad_id:'LAB-ADS-A'}});
  const {conversation,run}=await service.turn(c.id,{messages:['chị mua','cho mẹ','60kg'],model:'test-model'});
  assert.equal(conversation.history.length,4);assert.equal(run.input.messages.length,3);assert.equal(run.input.entry.product_id,'LAB-A');assert.equal(store.get('runs',run.id).model,'test-model');
+ assert.deepEqual(conversation.history.at(-1).media_ids,['LAB-A-IMG-1','LAB-A-VID-1']);
  const feedback=service.feedback({run_id:run.id,rating:'EDIT',corrected_reply:'Dạ mẹ mình 60kg, em tư vấn theo bảng L nhé chị.'});
  assert.deepEqual(feedback.input,run.input);assert.deepEqual(feedback.output,run.output);assert.ok(feedback.case.id);assert.deepEqual(store.get('cases',feedback.case.id).input,run.input);
  assert.throws(()=>service.feedback({run_id:run.id,rating:'EDIT',corrected_reply:''}));
@@ -76,6 +78,8 @@ test('HTTP end-to-end chat/feedback/replay/customer/import/export and local orig
  try{
  const boot=await call('/lab-api/bootstrap');assert.equal(boot.status,200);assert.equal(boot.body.cases.length,22);assert.equal(JSON.stringify(boot.body).includes('apiKey'),false);
  const page=await fetch(base);assert.match(await page.text(),/EMI SALES AGENT LAB/);
+ const image=await fetch(base+'/lab/media/lab-a-front.svg');assert.equal(image.status,200);assert.match(image.headers.get('content-type'),/image\/svg/);
+ const video=await fetch(base+'/lab/media/lab-a-demo.webm');assert.equal(video.status,200);assert.match(video.headers.get('content-type'),/video\/webm/);
  const customer=await call('/lab-api/customers',{name:'Chị Mai',profile:'Mua cho mẹ'});assert.equal(customer.status,201);
  const conversation=await call('/lab-api/conversations',{customer_id:customer.body.id,entry:{ad_id:'LAB-ADS-A'}});assert.equal(conversation.status,201);
  const turn=await call(`/lab-api/conversations/${conversation.body.id}/turn`,{messages:['chị mua','cho mẹ 60kg'],model:'configured-model'});assert.equal(turn.status,200);assert.equal(turn.body.conversation.history.length,3);

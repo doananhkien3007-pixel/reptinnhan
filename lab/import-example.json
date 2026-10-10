@@ -3,7 +3,7 @@
   "expectation": "60kg thuộc mẹ, không thuộc khách",
   "input": {
     "catalog": {
-      "version": "lab-catalog-1",
+      "version": "lab-catalog-2",
       "notice": "Toàn bộ dữ liệu là giả lập để test, không phải sản phẩm hay chính sách bán hàng thật.",
       "policies": {
         "shipping_fee": null,
@@ -39,7 +39,30 @@
           ],
           "fit": "Suông nhẹ, số đo ngực cần đối chiếu khi khách lo chật",
           "description": "Váy hoa dài qua gối; chưa có số đo dài váy",
-          "media": [],
+          "media": [
+            {
+              "id": "LAB-A-IMG-1",
+              "type": "image",
+              "url": "/lab/media/lab-a-front.svg",
+              "alt": "Váy hoa tím - ảnh toàn bộ mẫu",
+              "label": "Ảnh toàn bộ mẫu"
+            },
+            {
+              "id": "LAB-A-IMG-2",
+              "type": "image",
+              "url": "/lab/media/lab-a-detail.svg",
+              "alt": "Váy hoa tím - ảnh chi tiết họa tiết",
+              "label": "Ảnh chi tiết họa tiết"
+            },
+            {
+              "id": "LAB-A-VID-1",
+              "type": "video",
+              "url": "/lab/media/lab-a-demo.webm",
+              "poster_url": "/lab/media/lab-a-video-poster.svg",
+              "alt": "Video test dáng váy hoa tím",
+              "label": "Video dáng váy"
+            }
+          ],
           "stock": null
         },
         {
@@ -68,7 +91,15 @@
           ],
           "fit": "Suông rộng",
           "description": "Mẫu xanh trơn dùng kiểm thử tham chiếu hồi nãy",
-          "media": [],
+          "media": [
+            {
+              "id": "LAB-B-IMG-1",
+              "type": "image",
+              "url": "/lab/media/lab-b-front.svg",
+              "alt": "Váy xanh trơn - ảnh toàn bộ mẫu",
+              "label": "Ảnh toàn bộ mẫu"
+            }
+          ],
           "stock": null
         },
         {
@@ -84,7 +115,15 @@
           "size_guide": [],
           "fit": null,
           "description": "Mẫu dùng kiểm thử mua thêm, chưa có bảng size",
-          "media": [],
+          "media": [
+            {
+              "id": "LAB-C-IMG-1",
+              "type": "image",
+              "url": "/lab/media/lab-c-front.svg",
+              "alt": "Váy bông vàng - ảnh toàn bộ mẫu",
+              "label": "Ảnh toàn bộ mẫu"
+            }
+          ],
           "stock": null
         },
         {

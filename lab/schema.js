@@ -5,7 +5,7 @@ const arr = items => ({ type: 'array', items });
 const obj = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
 export const MEMORY_KEYS = ['weight_kg','height_cm','buying_for','interested_product','interested_color','recommended_size','selected_size','concern','considered_option','confirmed_choice','unresolved_reference'];
 const observation = { subject: str, key: en(...MEMORY_KEYS), value: str, kind: en('fact','inference'), evidence_message_id: str, evidence: str };
-export const SCHEMA_VERSION = 'emi-schema-1.0.0';
+export const SCHEMA_VERSION = 'emi-schema-1.1.0';
 export const BRAIN_SCHEMA = obj({
   understanding: str,
   current_product_id: nullable,
@@ -18,6 +18,7 @@ export const BRAIN_SCHEMA = obj({
   missing_information: arr(str),
   uncertainties: arr(str),
   human_needed: obj({ needed: { type: 'boolean' }, reason: str }),
+  media_ids: arr(str),
   suggested_reply: str
 });
 
@@ -44,6 +45,17 @@ export function validateBrain(output, input) {
   validateSchema(output);
   if (!output.suggested_reply.trim()) throw new Error('Suggested Reply trống');
   const ids = new Set(input.catalog.products.map(p=>p.id));
+  const mediaIds = new Map();
+  for (const product of input.catalog.products) {
+    for (const media of product.media || []) {
+      if (!media || typeof media.id !== 'string' || !media.id || !['image','video'].includes(media.type) || typeof media.url !== 'string' || !media.url) throw new Error('Catalog media không hợp lệ');
+      if (mediaIds.has(media.id)) throw new Error('Catalog media ID bị trùng');
+      mediaIds.set(media.id, media);
+    }
+  }
+  if (output.media_ids.length > 5 || new Set(output.media_ids).size !== output.media_ids.length) throw new Error('Danh sách media không hợp lệ');
+  const selectedMedia = output.media_ids.map(id=>{const media=mediaIds.get(id);if(!media)throw new Error('Model chọn media không có trong Lab');return media;});
+  if (selectedMedia.filter(m=>m.type==='image').length > 4 || selectedMedia.filter(m=>m.type==='video').length > 1) throw new Error('Số lượng media vượt giới hạn');
   const validId = id => { if (id !== null && !ids.has(id)) throw new Error('Model tham chiếu sản phẩm không có trong Lab'); };
   validId(output.current_product_id);
   output.referenced_products.forEach(p=>{validId(p.product_id);p.candidates.forEach(validId);});
