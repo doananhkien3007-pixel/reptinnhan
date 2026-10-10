@@ -83,9 +83,11 @@ Database có `lab_meta`, `lab_customers`, `lab_conversations`, `lab_runs`, `lab_
 
 ## Structured Output và giới hạn
 
-Các trường chính: `understanding`, `current_product_id`, `referenced_products`, `new_facts`, `memory_updates`, `concerns`, `purchase_intent`, `next_best_action`, `missing_information`, `uncertainties`, `human_needed`, `media_ids`, `suggested_reply`.
+Các trường chính: `understanding`, `current_product_id`, `referenced_products`, `new_facts`, `memory_updates`, `concerns`, `purchase_intent`, `next_best_action`, `missing_information`, `uncertainties`, `human_needed`, `media_ids`, `messages`.
 
-`media_ids` cho phép Agent tự chọn tối đa 4 ảnh và 1 video có thật trong catalog Lab. Server từ chối ID bịa hoặc ID trùng; UI hiển thị media trước câu trả lời chữ và lưu danh sách đã gửi vào history để model tránh lặp. Catalog giả lập có ảnh SVG và video WebM riêng cho Lab. Ở lượt tư vấn đầu của một mẫu, persona hướng Agent chủ động gửi media, báo giá/sale và hỏi gộp chiều cao + cân nặng nếu còn thiếu; quyết định vẫn do model dựa trên toàn bộ context, không có keyword/IF-ELSE chọn flow.
+`messages` là mảng từ 1 đến 6 bong bóng chữ, mỗi phần tử tối đa 2.000 ký tự. Local service và cloud service lưu từng phần tử thành một assistant message riêng theo đúng thứ tự; không nối các phần tử bằng `\n` hoặc `\n\n`. Khi một lượt có cả báo giá/ưu đãi và câu xin chiều cao + cân nặng, persona yêu cầu model đặt hai phần đó trong hai phần tử riêng, báo giá trước.
+
+`media_ids` cho phép Agent tự chọn tối đa 4 ảnh và 1 video có thật trong catalog Lab. Server từ chối ID bịa hoặc ID trùng; UI hiển thị media trước bong bóng chữ đầu tiên và lưu danh sách đã gửi vào history để model tránh lặp. Catalog giả lập có ảnh SVG và video WebM riêng cho Lab. Ở lượt tư vấn đầu của một mẫu, persona hướng Agent chủ động gửi media, báo giá/sale và hỏi gộp chiều cao + cân nặng nếu còn thiếu; quyết định vẫn do model dựa trên toàn bộ context, không có keyword/IF-ELSE chọn flow.
 
 Hội thoại web cũ được bổ sung riêng danh sách media Lab ở lượt tiếp theo để vẫn giữ lịch sử đang test. Các shop facts khác trong snapshot không bị thay thế.
 
@@ -108,4 +110,4 @@ npm run lab:evaluate -- --model YOUR_MODEL_ID --case seed-exchange-uncertain
 
 Test unit/integration dùng mock, không gửi Messenger hoặc gọi OpenAI trả phí. CLI evaluation cần key thật, gọi OpenAI, lưu run để xem trong UI. Rubric trọng yếu kiểm tra người mẹ, cân nặng 53, ok/khen màu chưa tự xác nhận, chuyển Ads A sang mẫu B, exchange+add và uncertainty của mẫu xanh. Các rubric chỉ đánh giá output, không tham gia quyết định câu trả lời. Case còn lại cần human review; pass rubric không đồng nghĩa đủ chất lượng production.
 
-Kết quả hiện tại: **124/124 test pass**, gồm cả phiên web được ký, isolation giữa hai trình duyệt, origin protection, retry idempotent và khóa lượt đồng thời. Bộ test không gửi Messenger. Các case đánh giá local vẫn cần chạy riêng với OpenAI thật và người sale chấm; schema hợp lệ không tự chứng nhận chất lượng tư vấn.
+Kết quả hiện tại: **125/125 test pass**, gồm cả phiên web được ký, isolation giữa hai trình duyệt, origin protection, retry idempotent và khóa lượt đồng thời. Bộ test không gửi Messenger. Các case đánh giá local vẫn cần chạy riêng với OpenAI thật và người sale chấm; schema hợp lệ không tự chứng nhận chất lượng tư vấn.

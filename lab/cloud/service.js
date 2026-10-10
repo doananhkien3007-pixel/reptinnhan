@@ -46,7 +46,10 @@ export class CloudLabService {
       const result = await this.brain(input, model, settings, { customInstructions: assistantConfig.custom_instructions || '' });
       validateBrain(result.output, input);
       const run = { id: randomUUID(), output: result.output, model: result.actual_model || model, usage: result.usage, versions: result.versions, response_id: result.response_id, duration_ms: Date.now() - started, created_at: now() };
-      const updated = { ...state, catalog: activeCatalog, history: [...state.history, { ...incoming, created_at: now() }, { id: randomUUID(), role: 'assistant', text: run.output.suggested_reply, media_ids: run.output.media_ids, run, created_at: now() }], memory: applyMemory(state.memory, run.output.memory_updates), last_run: run };
+      if (state.history.length + 1 + run.output.messages.length > settings.max_history_messages) fail(400, 'Hội thoại đã đủ 160 tin. Tạo cuộc trò chuyện mới để tiếp tục; lịch sử cũ vẫn được giữ.');
+      const replies = run.output.messages.map((message, index) => ({ id: randomUUID(), role: 'assistant', text: message,
+        media_ids: index === 0 ? run.output.media_ids : [], ...(index === run.output.messages.length - 1 ? { run } : {}), created_at: now() }));
+      const updated = { ...state, catalog: activeCatalog, history: [...state.history, { ...incoming, created_at: now() }, ...replies], memory: applyMemory(state.memory, run.output.memory_updates), last_run: run };
       const saved = await this.store.commit(sessionId, id, body.request_id, token, conversation.revision, updated);
       return { conversation: saved, replayed: false };
     } catch (error) {

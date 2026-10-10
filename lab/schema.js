@@ -1,11 +1,11 @@
 const str = { type: 'string' };
 const nullable = { type: ['string', 'null'] };
 const en = (...values) => ({ type: 'string', enum: values });
-const arr = items => ({ type: 'array', items });
+const arr = (items, limits = {}) => ({ type: 'array', items, ...limits });
 const obj = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
 export const MEMORY_KEYS = ['weight_kg','height_cm','buying_for','interested_product','interested_color','recommended_size','selected_size','concern','considered_option','confirmed_choice','unresolved_reference'];
 const observation = { subject: str, key: en(...MEMORY_KEYS), value: str, kind: en('fact','inference'), evidence_message_id: str, evidence: str };
-export const SCHEMA_VERSION = 'emi-schema-1.1.0';
+export const SCHEMA_VERSION = 'emi-schema-1.2.0';
 export const BRAIN_SCHEMA = obj({
   understanding: str,
   current_product_id: nullable,
@@ -19,7 +19,7 @@ export const BRAIN_SCHEMA = obj({
   uncertainties: arr(str),
   human_needed: obj({ needed: { type: 'boolean' }, reason: str }),
   media_ids: arr(str),
-  suggested_reply: str
+  messages: arr({ type: 'string', minLength: 1, maxLength: 2000 }, { minItems: 1, maxItems: 6 })
 });
 
 // Independent runtime validation: no business intent detection or reply rewriting.
@@ -36,14 +36,14 @@ export function validateSchema(value, schema = BRAIN_SCHEMA, path = 'output') {
     }
   }
   if (actual === 'array') value.forEach((v,i) => validateSchema(v,schema.items,`${path}[${i}]`));
-  if (actual === 'string' && value.length > 4000) throw new Error(`${path}: quá dài`);
-  if (actual === 'array' && value.length > 100) throw new Error(`${path}: quá nhiều mục`);
+  if (actual === 'string' && (value.length > (schema.maxLength ?? 4000) || value.length < (schema.minLength ?? 0))) throw new Error(`${path}: độ dài không hợp lệ`);
+  if (actual === 'array' && (value.length > (schema.maxItems ?? 100) || value.length < (schema.minItems ?? 0))) throw new Error(`${path}: số lượng mục không hợp lệ`);
   return value;
 }
 
 export function validateBrain(output, input) {
   validateSchema(output);
-  if (!output.suggested_reply.trim()) throw new Error('Suggested Reply trống');
+  if (output.messages.some(message => !message.trim())) throw new Error('Messages chứa bong bóng trống');
   const ids = new Set(input.catalog.products.map(p=>p.id));
   const mediaIds = new Map();
   for (const product of input.catalog.products) {

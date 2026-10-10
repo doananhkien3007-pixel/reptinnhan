@@ -40,7 +40,10 @@ export class LabService {
       check(conversation.history.length+body.messages.length+1<=this.config.max_history_messages,'Hội thoại quá dài; lưu case rồi mở New Conversation để tiếp tục. Không âm thầm cắt context.');
       const input=validateInput({catalog:this.catalog,customer:conversation.customer,entry:conversation.entry,history:conversation.history,memory:conversation.memory,messages:body.messages.map(message=>({id:randomUUID(),role:'user',text:text(message,'Tin nhắn')}))});
       const run=await this.run(input,body.model,{conversation_id:id});
-      const updated={...conversation,history:[...conversation.history,...input.messages,{id:randomUUID(),role:'assistant',text:run.output.suggested_reply,media_ids:run.output.media_ids,run_id:run.id}],memory:applyMemory(conversation.memory,run.output.memory_updates),run_ids:[...conversation.run_ids,run.id],revision:conversation.revision+1,updated_at:now()};
+      check(conversation.history.length+input.messages.length+run.output.messages.length<=this.config.max_history_messages,'Hội thoại quá dài; lưu case rồi mở New Conversation để tiếp tục. Không âm thầm cắt context.');
+      const replies=run.output.messages.map((message,index)=>({id:randomUUID(),role:'assistant',text:message,
+        media_ids:index===0?run.output.media_ids:[],run_id:run.id}));
+      const updated={...conversation,history:[...conversation.history,...input.messages,...replies],memory:applyMemory(conversation.memory,run.output.memory_updates),run_ids:[...conversation.run_ids,run.id],revision:conversation.revision+1,updated_at:now()};
       this.store.atomic(()=>{this.store.put('runs',run);this.store.put('conversations',updated);});
       return {conversation:updated,run};
     });
