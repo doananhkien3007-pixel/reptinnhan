@@ -26,7 +26,7 @@ function controls() {
   const unavailable = !state.boot || !state.boot.openai_ready;
   for (const id of ['send', 'message']) $(id).disabled = state.busy || unavailable;
   for (const id of ['new-chat', 'open-agent-settings']) $(id).disabled = state.busy || !state.boot;
-  for (const id of ['customer-name', 'product']) $(id).disabled = state.busy || !state.boot || !!state.conversation;
+  for (const id of ['customer-name', 'ad-id']) $(id).disabled = state.busy || !state.boot || !!state.conversation;
   $('messages').setAttribute('aria-busy', String(state.busy));
   $('composer').setAttribute('aria-busy', String(state.busy));
   $('send').innerHTML = state.busy ? 'Đang trả lời…' : 'Gửi tin <span aria-hidden="true">↗</span>';
@@ -43,9 +43,16 @@ function renderList() {
   controls();
 }
 function productFacts() {
-  const products = state.conversation?.state.catalog.products || state.boot?.products || [];
-  const product = products.find(p => p.id === $('product').value);
-  $('product-facts').textContent = product ? JSON.stringify(product, null, 2) : 'Chọn một sản phẩm để xem dữ liệu test.';
+  const catalog = state.conversation?.state.catalog || state.boot || {};
+  const adId = state.conversation?.state.entry.ad_id || $('ad-id').value.trim();
+  const ad = (catalog.ads || []).find(item => item.id === adId);
+  const product = (catalog.products || []).find(item => item.id === ad?.product_id);
+  $('product-facts').textContent = product ? JSON.stringify({ ad_id: ad.id, product }, null, 2) : 'Nhập Ads ID đã được gắn với một sản phẩm active trong Supabase.';
+}
+function renderAds() {
+  const current = $('ad-id').value.trim();
+  $('ad-options').innerHTML = (state.boot?.ads || []).map(ad => `<option value="${esc(ad.id)}">${esc(ad.name)}</option>`).join('');
+  if (!state.conversation && !current && state.boot?.ads?.[0]) $('ad-id').value = state.boot.ads[0].id;
 }
 function mediaIndex() {
   const products = state.conversation?.state.catalog.products || state.boot?.products || [];
@@ -59,8 +66,9 @@ function renderMedia(ids = []) {
   const items = ids.map(id => media.get(id)).filter(Boolean);
   if (!items.length) return '';
   return `<div class="message-media" aria-label="Media sản phẩm Emi gửi">${items.map(item => {
-    const url = safeMediaUrl(item.url); if (!url) return '';
+    const url = safeMediaUrl(item.url);
     const label = esc(item.label || item.alt || item.product_name || 'Media sản phẩm');
+    if (!url) return `<figure class="media-item attachment-only"><span>${item.type === 'video' ? 'VIDEO ATTACHMENT ID' : 'IMAGE ATTACHMENT ID'}</span><code>${esc(item.id)}</code></figure>`;
     if (item.type === 'video') {
       const poster = safeMediaUrl(item.poster_url);
       return `<figure class="media-item video"><video controls playsinline preload="metadata"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${label}"><source src="${esc(url)}" type="video/webm">Trình duyệt chưa hỗ trợ video.</video><figcaption><span aria-hidden="true">▶</span>${label}</figcaption></figure>`;
@@ -84,7 +92,7 @@ function renderAnalysis() {
   const list = values => values.length ? `<ul>${values.map(v => `<li>${esc(v)}</li>`).join('')}</ul>` : '<p>Chưa có.</p>';
   const selectedMedia = (o.media_ids || []).map(id => mediaIndex().get(id)).filter(Boolean);
   $('analysis').innerHTML = card('Khách đang muốn gì?', `<p>${esc(o.understanding)}</p>`, 'understanding') +
-    (selectedMedia.length ? card('Media Emi chọn gửi', list(selectedMedia.map(m => `${m.type === 'video' ? 'Video' : 'Ảnh'} · ${m.label || m.alt || m.id}`))) : '') +
+    (selectedMedia.length ? card('Attachment ID Emi chọn', list(selectedMedia.map(m => `${m.type === 'video' ? 'Video' : 'Ảnh'} · ${m.id}`))) : '') +
     card('Thông tin mới từ khách', list(o.new_facts.map(f => `${f.kind === 'fact' ? 'Khách đã nói' : 'Chưa xác nhận'} · ${f.subject} · ${f.key}: ${f.value}`))) +
     card('Nhu cầu và băn khoăn', `<p>${esc(o.purchase_intent.description)}</p>${o.concerns.length ? list(o.concerns) : ''}`) +
     card('Điều Emi cần làm tiếp', `<p>${esc(o.next_best_action)}</p>`) +
@@ -96,12 +104,12 @@ function setConversation(c) {
   state.conversation = c; state.run = c.state.last_run; state.retry = null;
   preference('emi.lab.conversation', c.id);
   $('customer-name').value = c.state.customer.name;
-  $('product').value = c.state.entry.product_id;
+  $('ad-id').value = c.state.entry.ad_id || '';
   renderList(); renderChat(); renderAnalysis(); productFacts(); renderAgentConfig(); controls();
 }
 async function refreshList() {
   const boot = await api('bootstrap'); state.boot = boot;
-  renderList();
+  renderAds(); renderList();
 }
 async function loadConversation(id) {
   if (state.busy) return;
@@ -116,7 +124,7 @@ function newConversation() {
   state.conversation = null; state.run = null; state.retry = null;
   preference('emi.lab.conversation', ''); $('message').value = '';
   renderList(); renderChat(); renderAnalysis(); productFacts(); renderAgentConfig(); controls();
-  status('Chọn sản phẩm và gửi lời đầu tiên của khách để bắt đầu.'); $('customer-name').focus();
+  status('Nhập Ads ID và gửi lời đầu tiên của khách để bắt đầu.'); $('customer-name').focus();
 }
 function guarded(fn) { return async event => { try { await fn(event); } catch (error) { status(error.message, true); } }; }
 $('composer').addEventListener('submit', guarded(async event => {
@@ -126,7 +134,7 @@ $('composer').addEventListener('submit', guarded(async event => {
   state.busy = true; controls();
   try {
     if (!state.conversation) {
-      const data = await api('create', { customer_name: $('customer-name').value, product_id: $('product').value, assistant_config: state.agentConfig });
+      const data = await api('create', { customer_name: $('customer-name').value, ad_id: $('ad-id').value.trim(), assistant_config: state.agentConfig });
       setConversation(data.conversation); await refreshList();
     }
     const old = state.retry;
@@ -146,7 +154,7 @@ $('composer').addEventListener('submit', guarded(async event => {
 }));
 $('message').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); } });
 $('new-chat').addEventListener('click', newConversation);
-$('product').addEventListener('change', productFacts);
+$('ad-id').addEventListener('input', productFacts);
 $('conversation-list').addEventListener('click', guarded(async event => {
   const button = event.target.closest('[data-conversation]'); if (!button || state.busy) return;
   await loadConversation(button.dataset.conversation);
@@ -186,10 +194,9 @@ guarded(async () => {
   state.boot = await api('bootstrap');
   state.agentConfig = storedAgentConfig(state.boot.default_model);
   $('persona').textContent = state.boot.persona;
-  $('product').innerHTML = state.boot.products.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  renderList(); productFacts(); renderAgentConfig(); controls();
+  renderAds(); renderList(); productFacts(); renderAgentConfig(); controls();
   const previous = preference('emi.lab.conversation');
   if (previous && state.boot.conversations.some(c => c.id === previous)) await loadConversation(previous);
-  else status('Sẵn sàng. Chọn sản phẩm và gửi tin nhắn như một khách hàng.');
+  else status(state.boot.ads.length ? 'Sẵn sàng. Nhập Ads ID và gửi tin nhắn như một khách hàng.' : 'Chưa có Ads ID nào được map với sản phẩm active trong Supabase.', !state.boot.ads.length);
   if (!state.boot.openai_ready) status('Database đã kết nối. Cần đặt OPENAI_API_KEY trong Environment Variables của project Vercel hiện tại để bắt đầu chat.', true);
 })();

@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 
-export const catalog = JSON.parse(readFileSync(new URL('../catalog.json', import.meta.url), 'utf8'));
 export const settings = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 export const defaultModel = () => process.env.EMI_LAB_MODEL || process.env.OPENAI_MODEL || settings.default_model;
 export const now = () => new Date().toISOString();

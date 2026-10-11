@@ -48,7 +48,8 @@ export function validateBrain(output, input) {
   const mediaIds = new Map();
   for (const product of input.catalog.products) {
     for (const media of product.media || []) {
-      if (!media || typeof media.id !== 'string' || !media.id || !['image','video'].includes(media.type) || typeof media.url !== 'string' || !media.url) throw new Error('Catalog media không hợp lệ');
+      if (!media || typeof media.id !== 'string' || !media.id || !['image','video'].includes(media.type)) throw new Error('Catalog media không hợp lệ');
+      if (media.url !== undefined && (typeof media.url !== 'string' || !media.url)) throw new Error('Catalog media không hợp lệ');
       if (mediaIds.has(media.id)) throw new Error('Catalog media ID bị trùng');
       mediaIds.set(media.id, media);
     }
@@ -63,7 +64,7 @@ export function validateBrain(output, input) {
   const sources = new Map([...input.history,...input.messages].map(m=>[m.id,m.text]));
   sources.set('customer_profile', JSON.stringify(input.customer));
   for (const fact of [...output.new_facts,...output.memory_updates]) {
-    if (!/^(customer|recipient:[\w-]+|product:LAB-[\w-]+)$/.test(fact.subject)) throw new Error('Memory subject không hợp lệ');
+    if (!/^(customer|recipient:[\w-]+|product:[\w.:-]+)$/.test(fact.subject)) throw new Error('Memory subject không hợp lệ');
     if (fact.subject.startsWith('product:')) validId(fact.subject.slice(8));
     if (!fact.evidence.trim() || !sources.get(fact.evidence_message_id)?.includes(fact.evidence)) throw new Error('Memory evidence không khớp nguồn hội thoại');
     if (fact.kind === 'fact' && !['customer_profile', ...input.history.filter(m=>m.role==='user').map(m=>m.id), ...input.messages.map(m=>m.id)].includes(fact.evidence_message_id)) throw new Error('Lời assistant không phải fact của khách');

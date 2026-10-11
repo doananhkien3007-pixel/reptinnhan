@@ -4,7 +4,7 @@ Lab độc lập về dữ liệu và luồng xử lý để xây, thử và đ�
 
 ## Lab trên website LeafChat
 
-Mở `/lab` trên cùng website LeafChat hoặc chọn **AI Sale Lab** ở thanh bên. Đây là một trang test riêng, nhưng dùng chung domain, giao diện và project Vercel hiện tại. API riêng nằm tại `/api/lab`; webhook Messenger, đơn hàng, tồn kho và bảng sản phẩm production không được gọi.
+Mở `/lab` trên cùng website LeafChat hoặc chọn **AI Sale Lab** ở thanh bên. Đây là một trang test riêng, nhưng dùng chung domain, giao diện và project Vercel hiện tại. API riêng nằm tại `/api/lab`; Lab nhận Ads ID, đọc `ad_product_mappings` và sản phẩm `active` tương ứng trong bảng `products`, không gọi webhook Messenger và không ghi đơn hàng, tồn kho hay sản phẩm.
 
 Nút **AI Assistant → Cấu hình trợ lý AI** trong Lab cho phép chọn model và nhập hướng dẫn bổ sung cho Emi. Cấu hình được chụp cùng lúc tạo hội thoại và lưu trong chính record Lab để mỗi kết quả có thể tái kiểm tra. Thay đổi khi đang mở một hội thoại chỉ áp dụng cho hội thoại mới, tránh đổi hành vi giữa chừng. Hướng dẫn bổ sung được đặt sau persona nền và không được ghi đè quy tắc trung thực, shop facts, schema hoặc bảo mật. Cấu hình này không đọc hay ghi System Prompt của bot Messenger.
 
@@ -27,7 +27,7 @@ Nếu thiếu key, UI báo rõ; không dùng câu trả lời giả làm fallbac
 
 ## Thao tác
 
-- Chọn/tạo customer test, chọn Product hoặc Ads giả lập rồi **New Conversation**. Hồ sơ khách chỉ chứa dữ liệu test đã biết.
+- Nhập hoặc chọn Ads ID đã được map với một sản phẩm thật đang hoạt động trong Supabase rồi tạo hội thoại mới. Ads ID chưa map hoặc đang trỏ tới sản phẩm inactive sẽ bị từ chối, không tự đoán mẫu. Hồ sơ khách vẫn chỉ chứa dữ liệu test đã biết.
 - Gửi tin như Messenger: Enter gửi, Shift+Enter xuống dòng. Tin gửi gần nhau được gom trong cửa sổ 650ms, tối đa 30 tin/lượt. Tin gửi khi model đang chạy xếp vào lượt tiếp theo. Gửi lỗi sẽ trả tin chưa xử lý về ô soạn.
 - Đổi Product/Ads ngay trong hội thoại để thử chuyển mẫu. Model vẫn đọc các mẫu, lịch sử và memory; entry Ads không khóa mẫu đang tư vấn.
 - Chọn câu Agent trong chat hoặc chọn lượt ở AI Brain để xem kết luận và memory sau **lượt đó**. Memory có subject người mặc, FACT/INFERENCE, evidence và Message ID.
@@ -77,7 +77,7 @@ Phần web bổ sung:
 | `sql/emi_sales_lab.sql` | Bảng Lab, RLS và RPC khóa/commit lượt chat |
 | `test/emi-cloud-lab.test.js` | Kiểm thử context, retry, phiên và isolation |
 
-Phần local vẫn dùng SQLite riêng. Phần web dùng bảng Supabase có tiền tố `emi_lab_`; không đọc hoặc ghi bảng Messenger, sản phẩm, đơn hàng hay tồn kho production.
+Phần local vẫn dùng SQLite và catalog giả lập riêng cho evaluation. Phần web lưu hội thoại trong bảng Supabase có tiền tố `emi_lab_`, đồng thời chỉ đọc `ad_product_mappings` và `products` để tạo catalog tư vấn theo Ads ID; không đọc tin Messenger và không ghi mapping, sản phẩm, đơn hàng hay tồn kho production.
 
 Database có `lab_meta`, `lab_customers`, `lab_conversations`, `lab_runs`, `lab_feedback`, `lab_cases`. Các record lưu JSON có ID độc lập. SQLite, WAL, SHM và environment đều không commit. `lab_runs` giữ snapshot đầy đủ và version; `lab_feedback` giữ input/context + output + rating + câu sửa + thời gian/model/version. Memory thuộc hội thoại, có người nhận và provenance; không dùng làm source of truth về giá, stock, sale.
 
@@ -87,15 +87,15 @@ Các trường chính: `understanding`, `current_product_id`, `referenced_produc
 
 `messages` là mảng từ 1 đến 6 bong bóng chữ, mỗi phần tử tối đa 2.000 ký tự. Local service và cloud service lưu từng phần tử thành một assistant message riêng theo đúng thứ tự; không nối các phần tử bằng `\n` hoặc `\n\n`. Khi một lượt có cả báo giá/ưu đãi và câu xin chiều cao + cân nặng, persona yêu cầu model đặt hai phần đó trong hai phần tử riêng, báo giá trước.
 
-`media_ids` cho phép Agent tự chọn tối đa 4 ảnh và 1 video có thật trong catalog Lab. Server từ chối ID bịa hoặc ID trùng; UI hiển thị media trước bong bóng chữ đầu tiên và lưu danh sách đã gửi vào history để model tránh lặp. Catalog giả lập có ảnh SVG và video WebM riêng cho Lab. Ở lượt tư vấn đầu của một mẫu, persona hướng Agent chủ động gửi media, báo giá/sale và hỏi gộp chiều cao + cân nặng nếu còn thiếu; quyết định vẫn do model dựa trên toàn bộ context, không có keyword/IF-ELSE chọn flow.
+`media_ids` cho phép Agent tự chọn tối đa 4 ảnh và 1 video có thật trong catalog Lab. Ở Lab web, mỗi `media.id` chính là `facebook_attachment_id`; payload đã lọc không chứa `image_url`, `video_url` hay `storage_path`, và UI chỉ hiện loại media cùng attachment ID. Server từ chối ID bịa hoặc ID trùng và lưu danh sách đã chọn vào history để model tránh lặp. Catalog giả lập với SVG/WebM chỉ còn dùng trong Lab local/evaluation. Ở lượt tư vấn đầu của một mẫu, persona hướng Agent chủ động chọn media, báo giá/sale và hỏi gộp chiều cao + cân nặng nếu còn thiếu; quyết định vẫn do model dựa trên toàn bộ context, không có keyword/IF-ELSE chọn flow.
 
 Hội thoại web cũ được bổ sung riêng danh sách media Lab ở lượt tiếp theo để vẫn giữ lịch sử đang test. Các shop facts khác trong snapshot không bị thay thế.
 
 `purchase_intent.transactions` tách source/target/action/quantity/confirmation. Exchange là một thao tác có nguồn và đích; add là thao tác khác. Những thao tác này **không** thực thi đơn hàng. Chỉ xuất kết luận, không yêu cầu hay hiển thị chain-of-thought.
 
-Memory phân biệt `customer`, `recipient:mother`, `recipient:other`, `product:LAB-*`; phân biệt fact/inference và recommended_size/selected_size. Model quyết định các cập nhật. Server kiểm tra schema, ID và trích dẫn evidence có thật trong tin tương ứng; fact chỉ lấy từ lời khách/hồ sơ. Không dùng regex để hiểu ý định mua hay tạo reply. Runtime validation không chứng minh suy luận đúng hoặc mọi câu tự nhiên đều đúng shop facts; điều này phải đánh giá bằng case thật và người sale. Ví dụ model có thể trích đúng evidence nhưng diễn giải sai người mặc: rubric phát hiện ở case người mẹ.
+Memory phân biệt `customer`, `recipient:*` và `product:<id thật từ Supabase>`; phân biệt fact/inference và recommended_size/selected_size. Model quyết định các cập nhật. Server kiểm tra schema, ID và trích dẫn evidence có thật trong tin tương ứng; fact chỉ lấy từ lời khách/hồ sơ. Không dùng regex để hiểu ý định mua hay tạo reply. Runtime validation không chứng minh suy luận đúng hoặc mọi câu tự nhiên đều đúng shop facts; điều này phải đánh giá bằng case thật và người sale. Ví dụ model có thể trích đúng evidence nhưng diễn giải sai người mặc: rubric phát hiện ở case người mẹ.
 
-Catalog của snapshot là nguồn dữ liệu trong replay để so sánh công bằng. Chat mới dùng catalog hiện tại từ file. Không tự nạp sản phẩm/customer/order production. Hội thoại tối đa 160 message, không âm thầm cắt context; vượt giới hạn cần lưu case và mở cuộc mới. Database local thiết kế cho một process Lab; không chạy nhiều server cùng cổng/database.
+Catalog của snapshot là nguồn dữ liệu trong replay local để so sánh công bằng. Trên web, bootstrap, tạo chat và mỗi lượt chat đều tải lại tối đa 50 sản phẩm `active` cùng tối đa 200 Ads mapping từ Supabase, sau đó chỉ truyền các trường đã cho phép sang browser/OpenAI. `entry` luôn gồm Ads ID và product ID đang được mapping ở thời điểm lượt chạy; nếu mapping mất hoặc không còn trỏ tới sản phẩm active, lượt chat dừng và yêu cầu tạo hội thoại mới. Hội thoại tối đa 160 message, không âm thầm cắt context; vượt giới hạn cần lưu case và mở cuộc mới. Database local thiết kế cho một process Lab; không chạy nhiều server cùng cổng/database.
 
 Theo [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), Responses API dùng `text.format` với JSON Schema `strict`; mọi property được required, `additionalProperties:false`. Request đặt `store:false` và không khai báo tools. Không trả reasoning trace về UI.
 
@@ -110,4 +110,4 @@ npm run lab:evaluate -- --model YOUR_MODEL_ID --case seed-exchange-uncertain
 
 Test unit/integration dùng mock, không gửi Messenger hoặc gọi OpenAI trả phí. CLI evaluation cần key thật, gọi OpenAI, lưu run để xem trong UI. Rubric trọng yếu kiểm tra người mẹ, cân nặng 53, ok/khen màu chưa tự xác nhận, chuyển Ads A sang mẫu B, exchange+add và uncertainty của mẫu xanh. Các rubric chỉ đánh giá output, không tham gia quyết định câu trả lời. Case còn lại cần human review; pass rubric không đồng nghĩa đủ chất lượng production.
 
-Kết quả hiện tại: **125/125 test pass**, gồm cả phiên web được ký, isolation giữa hai trình duyệt, origin protection, retry idempotent và khóa lượt đồng thời. Bộ test không gửi Messenger. Các case đánh giá local vẫn cần chạy riêng với OpenAI thật và người sale chấm; schema hợp lệ không tự chứng nhận chất lượng tư vấn.
+Bộ test bao gồm phiên web được ký, isolation giữa hai trình duyệt, origin protection, retry idempotent, khóa lượt đồng thời, tra sản phẩm theo Ads ID và kiểm tra catalog Supabase không làm lộ URL media. Bộ test không gửi Messenger. Các case đánh giá local vẫn cần chạy riêng với OpenAI thật và người sale chấm; schema hợp lệ không tự chứng nhận chất lượng tư vấn.

@@ -1,7 +1,8 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createLabStore } from './store.js';
 import { CloudLabService } from './service.js';
-import { catalog, defaultModel, fail, uuid } from './settings.js';
+import { defaultModel, fail, uuid } from './settings.js';
+import { loadProductCatalog } from './catalog.js';
 import { PERSONA_VERSION } from '../persona.js';
 
 const cookieName = 'emi_lab_session';
@@ -27,7 +28,7 @@ async function readBody(req) {
   if (!body || Array.isArray(body) || typeof body !== 'object') fail(400, 'Body không hợp lệ.');
   return body;
 }
-export function createCloudHandler({ storeFactory = createLabStore, brain, sessionSecret = () => process.env.EMI_LAB_SESSION_SECRET } = {}) {
+export function createCloudHandler({ storeFactory = createLabStore, brain, catalogProvider, sessionSecret = () => process.env.EMI_LAB_SESSION_SECRET } = {}) {
   return async (req, res) => {
     const send = (status, value) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.end(JSON.stringify(value)); };
     res.setHeader('Cache-Control', 'no-store');
@@ -45,8 +46,12 @@ export function createCloudHandler({ storeFactory = createLabStore, brain, sessi
       }
       const sessionId = session(req, res, secret, req.method === 'GET' && action === 'bootstrap');
       const store = storeFactory();
-      const service = new CloudLabService(store, brain);
-      if (req.method === 'GET' && action === 'bootstrap') return send(200, { products: catalog.products, catalog_notice: catalog.notice, persona: 'Emi House · xưng em, gọi chị · tư vấn chủ động theo toàn bộ ngữ cảnh', persona_version: PERSONA_VERSION, default_model: defaultModel(), max_custom_instructions: 8000, openai_ready: !!process.env.OPENAI_API_KEY, conversations: await store.list(sessionId) });
+      const getCatalog = () => catalogProvider ? catalogProvider(store) : loadProductCatalog(store.client);
+      const service = new CloudLabService(store, brain, getCatalog);
+      if (req.method === 'GET' && action === 'bootstrap') {
+        const catalog = await getCatalog();
+        return send(200, { products: catalog.products, ads: catalog.ads, catalog_notice: catalog.notice, persona: 'Emi House · xưng em, gọi chị · tư vấn chủ động theo toàn bộ ngữ cảnh', persona_version: PERSONA_VERSION, default_model: defaultModel(), max_custom_instructions: 8000, openai_ready: !!process.env.OPENAI_API_KEY, conversations: await store.list(sessionId) });
+      }
       if (req.method === 'GET' && action === 'conversation') return send(200, { conversation: await store.get(sessionId, uuid(url.searchParams.get('id'))) });
       if (req.method !== 'POST') fail(404, 'Route không có trong Lab.');
       const body = await readBody(req);
