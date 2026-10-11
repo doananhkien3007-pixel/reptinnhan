@@ -22,22 +22,23 @@ test('số đo ở lịch sử khách dừng bot kể cả xin ảnh; lời bot 
   assert.equal(getIntroductionFollowup(product,[{direction:'outbound',text:'chị 70kg'}],'gửi ảnh'),null);
 });
 
-test('số trần sau câu xin số đo bàn giao, giá hoặc số điện thoại không bị đoán thành số đo', () => {
-  assert.equal(getIntroductionFollowup(product,[{direction:'outbound',text:SIZE_QUESTION}],'53').intent,'human_handoff');
+test('số điện thoại bàn giao; số trần sau câu xin điện thoại không bị đoán thành số đo', () => {
+  assert.equal(getIntroductionFollowup(product,[{direction:'outbound',text:SIZE_QUESTION}],'53'),null);
+  assert.equal(getIntroductionFollowup(product,[{direction:'outbound',text:SIZE_QUESTION}],'0901234567').intent,'human_handoff');
   assert.equal(getIntroductionFollowup(product,[{direction:'inbound',text:'53'},{direction:'outbound',text:SIZE_QUESTION}],'gửi ảnh'),null);
   assert.equal(getIntroductionFollowup(product,[],'giá 279k'),null);
 });
 
-test('giới thiệu còn thiếu chỉ hỏi số đo chưa có trong lịch sử', () => {
+test('kịch bản giới thiệu luôn xin số điện thoại thay vì hỏi số đo', () => {
   assert.ok(planIntroduction(product, []).messages.includes(SIZE_QUESTION));
   const knownHeight = planIntroduction(product, [], { history: [{ direction: 'inbound', text: 'cao m59' }] });
-  assert.match(knownHeight.messages.at(-1), /xin cân nặng/);
-  assert.doesNotMatch(knownHeight.messages.at(-1), /chiều cao/);
+  assert.equal(knownHeight.messages.at(-1), SIZE_QUESTION);
   const knownWeight = planIntroduction(product, [], { history: [{ direction: 'inbound', text: '70kg' }] });
-  assert.equal(knownWeight.messages.length, 1);
+  assert.equal(knownWeight.messages.at(-1), SIZE_QUESTION);
+  assert.doesNotMatch(SIZE_QUESTION, /chiều cao|cân nặng/);
 });
 
-test('mẫu chỉ một ảnh, không video vẫn giới thiệu đúng giá ưu đãi và số đo', () => {
+test('mẫu chỉ một ảnh, không video vẫn giới thiệu đúng giá ưu đãi và xin số điện thoại', () => {
   const photoOnly = { ...product, images: [product.images[0]] };
   const plan = planIntroduction(photoOnly, []);
   assert.equal(plan.images.length, 1);

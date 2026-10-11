@@ -1,6 +1,6 @@
 # Kịch bản giới thiệu và bàn giao cho nhân viên
 
-Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có → giá/ưu đãi → xin cân nặng và chiều cao**. Bot không gọi AI để tư vấn size và không tự tạo đơn. Biến `MESSENGER_MODE` cũ không thay đổi luồng này, kể cả khi đặt `contextual_ai`.
+Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có → giá/ưu đãi → xin số điện thoại để nhân viên gọi tư vấn size**. Bot không gọi AI để tư vấn size và không tự tạo đơn. Biến `MESSENGER_MODE` cũ không thay đổi luồng này, kể cả khi đặt `contextual_ai`.
 
 ## Chọn sản phẩm theo quảng cáo mới nhất
 
@@ -12,7 +12,7 @@ Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có �
 
 ## Bộ giới thiệu
 
-Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Hai mẫu SKU `MANGO-HQ-279` (Ads `52589265758103`) và `MANGO-HQ-HONG-TIM-279` dùng chung hai bong bóng riêng theo thứ tự: giới thiệu chất liệu lụa Mango Hàn Quốc; sau đó báo giảm 20% còn 279K, miễn phí ship và chính sách kiểm tra/mặc thử trước khi thanh toán. Không nối hai nội dung bằng xuống dòng. Các mẫu khác dùng giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Cuối cùng xin chiều cao và cân nặng bằng một bong bóng riêng.
+Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Hai mẫu SKU `MANGO-HQ-279` (Ads `52589265758103`) và `MANGO-HQ-HONG-TIM-279` dùng chung hai bong bóng riêng theo thứ tự: giới thiệu chất liệu lụa Mango Hàn Quốc; sau đó báo giảm 20% còn 279K, miễn phí ship và chính sách kiểm tra/mặc thử trước khi thanh toán. Không nối hai nội dung bằng xuống dòng. Các mẫu khác dùng giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Cuối cùng xin số điện thoại để nhân viên gọi tư vấn và chọn size bằng một bong bóng riêng.
 
 ## Trạng thái theo UID khách + sản phẩm
 

@@ -554,12 +554,12 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       assert.equal(handoff.intent,'human_handoff'); assert.equal(handoff.skipped,true); assert.equal(handoff.reply,'');
       assert.equal(settings.has('product_intro:customer:7'),false); assert.equal(storedMessages.length,0);
     });
-    await scenario('preview nhớ ảnh đã gửi và số đo trong phiên thử', async () => {
+    await scenario('preview nhớ ảnh đã gửi và số điện thoại trong phiên thử', async () => {
       const first=await action('POST','preview_reply',{message:'xin giá'});
       const history=[{direction:'inbound',text:'xin giá'},{direction:'outbound',text:[...first.media_markers,...first.messages].join('\n\n')}];
       const second=await action('POST','preview_reply',{message:'gửi ảnh',preview_history:history});
       assert.equal(second.skipped,true); assert.deepEqual(second.media_ids,[]);
-      const handoff=await action('POST','preview_reply',{message:'53',preview_history:history});
+      const handoff=await action('POST','preview_reply',{message:'0901234567',preview_history:history});
       assert.equal(handoff.intent,'human_handoff');
     });
     await scenario('preview khách đã bàn giao luôn giữ im lặng', async () => {
