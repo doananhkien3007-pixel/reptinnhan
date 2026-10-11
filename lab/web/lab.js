@@ -1,7 +1,9 @@
 const $=id=>document.getElementById(id);
 const state={data:null,conversation:null,run:null,pending:[],inflight:[],sending:false,caseRunning:false,rating:null};
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const replyMessages=output=>Array.isArray(output?.messages)?output.messages:typeof output?.suggested_reply==='string'?[output.suggested_reply]:[];
+// The browser only renders the structured messages produced by the server-side OpenAI brain.
+// It must never manufacture or fall back to a client-side reply.
+const replyMessages=output=>Array.isArray(output?.messages)?output.messages:[];
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 async function api(path,body){const response=await fetch(`/lab-api${path}`,body===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new Error(data.error||'Lỗi Lab');return data;}
 function options(items,selected){return items.map(([id,name])=>`<option value="${esc(id)}" ${id===selected?'selected':''}>${esc(name)}</option>`).join('');}

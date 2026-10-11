@@ -4,6 +4,7 @@ const fixtures = [
  ['typo','Sai chính tả / không dấu','c mun coi vay hoa tim mac di dam dc ko',[], 'Hiểu muốn xem/tư vấn váy tím; không giảm certainty chỉ vì lỗi chính tả.'],
  ['short-messages','Nhiều tin ngắn',['chị xem mẫu này','53','kg','bụng chị hơi to'],h('chị muốn tư vấn size','Dạ chị nặng bao nhiêu kg ạ?'),'Hiểu cân nặng 53kg và lo bụng; không hỏi lại cân nặng.'],
  ['weight53','53 sau câu hỏi cân nặng','53',h('chị thích mẫu này','Dạ chị nặng bao nhiêu kg ạ?'),'Lưu customer weight_kg 53 fact; tư vấn M theo bảng giả lập.'],
+ ['height-shorthand','Chiều cao viết tắt m54','54kg m54',[],'Lưu customer weight_kg 54 và height_cm 154 là fact; không hỏi lại chiều cao hoặc cân nặng.'],
  ['ok-size','ok sau tư vấn size','ok',h('chị 53kg','Dạ theo bảng mẫu hoa tím, chị tham khảo size M ạ.'),'Đồng ý/ghi nhận tư vấn, chưa mặc định mua hay đã chọn size.'],
  ['ok-confirm','ok sau yêu cầu xác nhận','ok',h('chị lấy váy tím M một cái','Dạ chị xác nhận chọn một váy hoa tím màu tím size M nhé?'),'Xác nhận lựa chọn đã nêu; không tuyên bố tạo đơn.'],
  ['change-mind','Đổi ý màu','thôi c lấy hồng nha ko tím nữa',h('chị chọn tím M','Dạ em ghi nhận chị chọn tím size M.'),'Đổi lựa chọn sang hồng; giữ size M, bỏ màu tím khỏi lựa chọn hiện tại.'],

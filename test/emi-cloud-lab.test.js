@@ -46,6 +46,9 @@ test('cloud chat sends full persisted context and assistant config; request retr
   const first = { request_id: randomUUID(), revision: 0, message: 'Chị mua cho mẹ 60kg', model: 'test-model' };
   const r = await service.turn(session, c.id, first);
   assert.equal(r.conversation.state.history.length, 3);
+  assert.equal(inputs[0].messages.length, 1);
+  assert.equal(inputs[0].messages[0].text, first.message);
+  assert.deepEqual(r.conversation.state.history.slice(1).map(message => message.text), output().messages);
   assert.equal(inputs[0].catalog.products[0].id, 'LAB-A');
   assert.deepEqual(inputs[0].entry, { product_id: 'LAB-A', ad_id: AD_ID });
   assert.equal(inputs[0].catalog.version, 'lab-catalog-2'); assert.equal(inputs[0].catalog.products[0].media.length, 3);
@@ -149,7 +152,12 @@ test('cloud deployment keeps server credentials private and translates database 
   await assert.rejects(store.result(Promise.resolve({ error: { code: 'other', message: 'secret-key' } })), e => e.status === 503 && !e.message.includes('secret-key'));
   const ui = readFileSync(new URL('../public/lab/lab.js', import.meta.url), 'utf8');
   assert.doesNotMatch(ui, /SUPABASE_SECRET_KEY|OPENAI_API_KEY\s*[:=]|graph\.facebook/);
-  assert.match(ui, /assistant_config/); assert.match(ui, /message-media/); assert.match(ui, /media_ids/); assert.doesNotMatch(ui, /set_system_prompt|preview_reply|api\/webhook/);
+  assert.match(ui, /assistant_config/); assert.match(ui, /message-media/); assert.match(ui, /media_ids/);
+  assert.match(ui, /api\('turn', request\)/);
+  assert.doesNotMatch(ui, /api\.openai\.com|responses\.create|suggested_reply|preview_reply|set_system_prompt|api\/webhook|generateReply|responseTemplates|keywordFlow/);
+  const localUi = readFileSync(new URL('../lab/web/lab.js', import.meta.url), 'utf8');
+  assert.match(localUi, /Array\.isArray\(output\?\.messages\)/);
+  assert.doesNotMatch(localUi, /suggested_reply|generateReply|responseTemplates|keywordFlow/);
   const sql = readFileSync(new URL('../sql/emi_sales_lab.sql', import.meta.url), 'utf8');
   assert.match(sql, /enable row level security/); assert.doesNotMatch(sql, /security definer/i);
   assert.match(sql, /revoke all on function/);

@@ -2,6 +2,8 @@
 
 Lab độc lập về dữ liệu và luồng xử lý để xây, thử và đánh giá bộ não sale Emi House. OpenAI đọc toàn bộ context, diễn giải ý định, cập nhật memory và đề xuất câu trả lời. Code không phân loại khách bằng keyword, không state machine sale, không tự fine-tune.
 
+Ranh giới trách nhiệm được cố định: browser chỉ gửi nguyên văn tin khách tới API Lab và render lịch sử server trả về; browser không phân loại ý định, chọn flow hay tự viết câu trả lời. Backend nạp context từ Supabase, gọi OpenAI Responses API, kiểm tra Structured Output rồi lưu từng phần tử `messages[]` theo đúng thứ tự. Nếu OpenAI lỗi, từ chối hoặc trả output không hợp lệ thì lượt chat thất bại; không có câu trả lời cứng/fallback phía web.
+
 ## Lab trên website LeafChat
 
 Mở `/lab` trên cùng website LeafChat hoặc chọn **AI Sale Lab** ở thanh bên. Đây là một trang test riêng, nhưng dùng chung domain, giao diện và project Vercel hiện tại. API riêng nằm tại `/api/lab`; Lab nhận Ads ID, đọc `ad_product_mappings` và sản phẩm `active` tương ứng trong bảng `products`, không gọi webhook Messenger và không ghi đơn hàng, tồn kho hay sản phẩm.
@@ -34,7 +36,7 @@ Nếu thiếu key, UI báo rõ; không dùng câu trả lời giả làm fallbac
 - **GOOD** lưu đánh giá. **EDIT** yêu cầu câu sale thật; **BAD** cho nhập lỗi. EDIT/BAD tự tạo case từ snapshot của lượt lỗi. Không tự biến feedback thành luật hoặc ghi đè lịch sử chat.
 - **Lưu test case** lưu input/context của lượt đã chọn và kỳ vọng. **Reset** xóa lịch sử/memory hiện tại; các run/feedback/case đã lưu vẫn còn. **New Conversation** tạo cuộc mới, memory mới; không âm thầm mang suy luận từ cuộc cũ sang khách.
 - Case: chọn case, đổi model phía trên, **Chạy lại**. Lịch sử, tin mục tiêu, hồ sơ, entry, memory và catalog giữ nguyên snapshot. Các output model nằm cạnh nhau bên dưới. CHAT TEST hiển thị snapshot chỉ đọc; chọn New Conversation để chat tiếp. Replay là kiểm thử đúng một lượt trên cùng prefix hội thoại, không tái sinh toàn bộ prefix bằng model mới.
-- **Chạy toàn bộ case** gọi API một lần mỗi case; mặc định có 22 case. Trạng thái “output hợp lệ” là đạt API/schema/provenance, chưa khẳng định đúng chất lượng sale. Cần người chấm GOOD/EDIT/BAD.
+- **Chạy toàn bộ case** gọi API một lần mỗi case; mặc định có 23 case. Trạng thái “output hợp lệ” là đạt API/schema/provenance, chưa khẳng định đúng chất lượng sale. Cần người chấm GOOD/EDIT/BAD.
 - **Xuất dữ liệu** xuất JSON gồm catalog, case, input/output, memory, đánh giá, model, usage, timestamp và version. **Import JSON** nhận một case, mảng case hoặc trường `cases` của export. Import chỉ nhận case; không ghi đè run/customer/hội thoại. Xem `lab/import-example.json`. Import nhiều case được lưu lần lượt; nếu case lỗi, các case trước đó vẫn còn.
 
 ## Audit và kiến trúc
@@ -93,7 +95,7 @@ Hội thoại web cũ được bổ sung riêng danh sách media Lab ở lượt
 
 `purchase_intent.transactions` tách source/target/action/quantity/confirmation. Exchange là một thao tác có nguồn và đích; add là thao tác khác. Những thao tác này **không** thực thi đơn hàng. Chỉ xuất kết luận, không yêu cầu hay hiển thị chain-of-thought.
 
-Memory phân biệt `customer`, `recipient:*` và `product:<id thật từ Supabase>`; phân biệt fact/inference và recommended_size/selected_size. Model quyết định các cập nhật. Server kiểm tra schema, ID và trích dẫn evidence có thật trong tin tương ứng; fact chỉ lấy từ lời khách/hồ sơ. Không dùng regex để hiểu ý định mua hay tạo reply. Runtime validation không chứng minh suy luận đúng hoặc mọi câu tự nhiên đều đúng shop facts; điều này phải đánh giá bằng case thật và người sale. Ví dụ model có thể trích đúng evidence nhưng diễn giải sai người mặc: rubric phát hiện ở case người mẹ.
+Memory phân biệt `customer`, `recipient:*` và `product:<id thật từ Supabase>`; phân biệt fact/inference và recommended_size/selected_size. Model hiểu cách viết số đo phổ biến như `54kg m54` thành cân nặng 54kg và chiều cao 154cm, không hỏi lại dữ liệu đã có. Model quyết định các cập nhật. Server kiểm tra schema, ID và trích dẫn evidence có thật trong tin tương ứng; fact chỉ lấy từ lời khách/hồ sơ. Không dùng regex để hiểu ý định mua hay tạo reply. Runtime validation không chứng minh suy luận đúng hoặc mọi câu tự nhiên đều đúng shop facts; điều này phải đánh giá bằng case thật và người sale. Ví dụ model có thể trích đúng evidence nhưng diễn giải sai người mặc: rubric phát hiện ở case người mẹ.
 
 Catalog của snapshot là nguồn dữ liệu trong replay local để so sánh công bằng. Trên web, bootstrap, tạo chat và mỗi lượt chat đều tải lại tối đa 50 sản phẩm `active` cùng tối đa 200 Ads mapping từ Supabase, sau đó chỉ truyền các trường đã cho phép sang browser/OpenAI. `entry` luôn gồm Ads ID và product ID đang được mapping ở thời điểm lượt chạy; nếu mapping mất hoặc không còn trỏ tới sản phẩm active, lượt chat dừng và yêu cầu tạo hội thoại mới. Hội thoại tối đa 160 message, không âm thầm cắt context; vượt giới hạn cần lưu case và mở cuộc mới. Database local thiết kế cho một process Lab; không chạy nhiều server cùng cổng/database.
 
@@ -108,6 +110,6 @@ npm run lab:evaluate -- --model YOUR_MODEL_ID
 npm run lab:evaluate -- --model YOUR_MODEL_ID --case seed-exchange-uncertain
 ```
 
-Test unit/integration dùng mock, không gửi Messenger hoặc gọi OpenAI trả phí. CLI evaluation cần key thật, gọi OpenAI, lưu run để xem trong UI. Rubric trọng yếu kiểm tra người mẹ, cân nặng 53, ok/khen màu chưa tự xác nhận, chuyển Ads A sang mẫu B, exchange+add và uncertainty của mẫu xanh. Các rubric chỉ đánh giá output, không tham gia quyết định câu trả lời. Case còn lại cần human review; pass rubric không đồng nghĩa đủ chất lượng production.
+Test unit/integration dùng mock, không gửi Messenger hoặc gọi OpenAI trả phí. CLI evaluation cần key thật, gọi OpenAI, lưu run để xem trong UI. Rubric trọng yếu kiểm tra người mẹ, cân nặng 53, `54kg m54`, ok/khen màu chưa tự xác nhận, chuyển Ads A sang mẫu B, exchange+add và uncertainty của mẫu xanh. Các rubric chỉ đánh giá output, không tham gia quyết định câu trả lời. Case còn lại cần human review; pass rubric không đồng nghĩa đủ chất lượng production.
 
 Bộ test bao gồm phiên web được ký, isolation giữa hai trình duyệt, origin protection, retry idempotent, khóa lượt đồng thời, tra sản phẩm theo Ads ID và kiểm tra catalog Supabase không làm lộ URL media. Bộ test không gửi Messenger. Các case đánh giá local vẫn cần chạy riêng với OpenAI thật và người sale chấm; schema hợp lệ không tự chứng nhận chất lượng tư vấn.

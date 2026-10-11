@@ -9,6 +9,12 @@ export function evaluateCriticalCase(caseId, output) {
     add('Không gán 60kg cho khách',!observations.some(m=>m.subject==='customer'&&m.key==='weight_kg'&&m.value==='60'));
   }
   if(caseId==='seed-weight53') add('53 được hiểu là cân nặng',observations.some(m=>m.subject==='customer'&&m.key==='weight_kg'&&m.value==='53'&&m.kind==='fact'));
+  if(caseId==='seed-height-shorthand') {
+    add('54kg được hiểu là cân nặng',observations.some(m=>m.subject==='customer'&&m.key==='weight_kg'&&m.value==='54'&&m.kind==='fact'));
+    add('m54 được hiểu là chiều cao 154cm',observations.some(m=>m.subject==='customer'&&m.key==='height_cm'&&m.value==='154'&&m.kind==='fact'));
+    const reply=output.messages.join(' ').toLocaleLowerCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');
+    add('Không hỏi lại chiều cao',!/(cho em (biet|xin)|xin them)[^?.!]{0,40}(chieu cao|cao)|(chieu cao|cao)[^?.!]{0,20}(bao nhieu|la bao nhieu)/.test(reply));
+  }
   if(caseId==='seed-ok-size'||caseId==='seed-like-not-select') add('Không tự xác nhận mua',!output.purchase_intent.confirmed&&!transactions.some(t=>['buy','confirm'].includes(t.action)&&t.confirmation==='confirmed'));
   if(caseId==='seed-ads-switch') add('Chuyển mẫu sang B',output.current_product_id==='LAB-B');
   if(['seed-exchange-add','seed-exchange-uncertain'].includes(caseId)) {
