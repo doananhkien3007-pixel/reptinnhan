@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { PROMOTION_MESSAGE, SIZE_QUESTION, getPromotionMessage } from '../server/product-introduction.js';
+import { MATERIAL_MESSAGE, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
 
 test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads mới nhất', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -240,7 +240,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
   const introductionValues = p => [
     ...p.images.filter(item => item.media_type !== 'video').sort((a,b) => Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)) || (a.sort_order || 0)-(b.sort_order || 0)).map(item => item.facebook_attachment_id).slice(0,4),
     ...p.images.filter(item => item.media_type === 'video').sort((a,b) => (a.sort_order || 0)-(b.sort_order || 0)).slice(0,1).map(item => item.facebook_attachment_id),
-    getPromotionMessage(p), SIZE_QUESTION
+    ...getPromotionMessages(p), SIZE_QUESTION
   ];
   const adProduct = { ...product, id: 13, sku: 'VAY-13', name: 'Váy hồng tím', price: 450000, sale_price: 279000, shipping_policy: 'Freeship',
     images: [1,2,3,4].map(id => ({facebook_attachment_id:`new-image-${id}`,sort_order:id})) };
@@ -257,10 +257,10 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13);
       await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:1000});
-      assert.deepEqual(messageValues(),[...mango.images.map(item=>item.facebook_attachment_id),PROMOTION_MESSAGE,SIZE_QUESTION]);
+      assert.deepEqual(messageValues(),[...mango.images.map(item=>item.facebook_attachment_id),...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION]);
       assert.equal(settings.get('product_intro:customer:13').value.status,'introduced');
       await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:3600000});
-      assert.equal(sentToMessenger.length,6);
+      assert.equal(sentToMessenger.length,introductionValues(mango).length);
     });
     await scenario('Ads 52589265758103 của mẫu Mango 12 dùng cùng lời ưu đãi', async () => {
       const mango={...product,sku:'MANGO-HQ-279'};
@@ -268,7 +268,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       await deliver('Xin giá',{referral:{ad_id:'52589265758103'},timestamp:1000});
       assert.deepEqual(messageValues(),[...mango.images.filter(item=>item.media_type!=='video')
         .sort((a,b)=>Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)) || (a.sort_order||0)-(b.sort_order||0))
-        .map(item=>item.facebook_attachment_id), 'video-attachment', PROMOTION_MESSAGE, SIZE_QUESTION]);
+        .map(item=>item.facebook_attachment_id), 'video-attachment', ...MANGO_PROMOTION_MESSAGES, SIZE_QUESTION]);
       assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
       delete product.sku;
     });
@@ -276,7 +276,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';
       const first=await action('POST','preview_reply',{message:'Xin giá',sender_id:'customer'});
-      assert.equal(first.messages[0],PROMOTION_MESSAGE);
+      assert.deepEqual(first.messages.slice(0,2),[MATERIAL_MESSAGE,PROMOTION_MESSAGE]);
       const history=[{direction:'inbound',text:'Xin giá'},{direction:'outbound',text:[...first.media_markers,...first.messages].join('\n\n')}];
       const second=await action('POST','preview_reply',{message:'Gửi mẫu',sender_id:'customer',preview_history:history});
       assert.equal(second.skipped,true); assert.deepEqual(second.media_ids,[]); assert.deepEqual(second.messages,[]);
@@ -287,10 +287,10 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';
       seed('[Video sản phẩm 12:old-video]'); seed('[Ảnh sản phẩm 12:old-image]');
-      seed(PROMOTION_MESSAGE); seed(SIZE_QUESTION);
+      seed(MATERIAL_MESSAGE); seed(PROMOTION_MESSAGE); seed(SIZE_QUESTION);
       const preview=await action('POST','preview_reply',{message:'Xin giá',sender_id:'customer'});
       assert.equal(preview.skipped,false); assert.equal(preview.product_id,13);
-      assert.deepEqual(preview.messages,[PROMOTION_MESSAGE,SIZE_QUESTION]);
+      assert.deepEqual(preview.messages,[...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION]);
       assert.equal(settings.has('product_intro:customer:13'),false); assert.equal(sentToMessenger.length,0);
       await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:1000});
       assert.deepEqual(messageValues(),introductionValues(mango));
@@ -443,13 +443,13 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       assert.deepEqual(messageValues(),introductionValues(product));
     });
     await scenario('khách đã giới thiệu từ bản không video thì không gửi bổ sung video', async () => {
-      seed('[Ảnh sản phẩm 7:primary-attachment]'); seed(getPromotionMessage(product)); seed(SIZE_QUESTION);
+      seed('[Ảnh sản phẩm 7:primary-attachment]'); getPromotionMessages(product).forEach(seed); seed(SIZE_QUESTION);
       await deliver('xin giá'); await deliver('gửi mẫu');
       assert.equal(sentToMessenger.length,0);
     });
     await scenario('mẫu mới lỗi ở giá vẫn xin số đo sau retry dù mẫu cũ đã xin trước đó', async () => {
       extraProducts=[adProduct]; adMappings.set('new-ad',13);
-      seed(getPromotionMessage(product)); seed(SIZE_QUESTION);
+      getPromotionMessages(product).forEach(seed); seed(SIZE_QUESTION);
       failTextOnce=true; const event={text:'xem mẫu',mid:'new-product-price-failure'};
       const referral={referral:{ad_id:'new-ad'},timestamp:2000};
       await deliver(event,referral,503); await deliver(event,referral);
@@ -548,7 +548,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const result=await action('POST','preview_reply',{message:'xin giá',sender_id:'customer'});
       assert.equal(result.product_name,adProduct.name); assert.equal(result.intent,'product_introduction');
       assert.deepEqual(result.media_ids,adProduct.images.map(item=>item.facebook_attachment_id));
-      assert.deepEqual(result.messages,[getPromotionMessage(adProduct),SIZE_QUESTION]);
+      assert.deepEqual(result.messages,[...getPromotionMessages(adProduct),SIZE_QUESTION]);
       assert.equal(conversation.current_product_id,7); assert.equal(sentToMessenger.length,0); assert.equal(aiRequests.length,0);
       const handoff=await action('POST','preview_reply',{message:'53kg',sender_id:'customer'});
       assert.equal(handoff.intent,'human_handoff'); assert.equal(handoff.skipped,true); assert.equal(handoff.reply,'');

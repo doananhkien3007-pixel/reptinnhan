@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
-import { planIntroduction, SIZE_QUESTION, getPromotionMessage, PROMOTION_MESSAGE } from '../server/product-introduction.js';
+import { planIntroduction, SIZE_QUESTION, getPromotionMessage, getPromotionMessages, MATERIAL_MESSAGE, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES } from '../server/product-introduction.js';
+
+const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 
 const product = { id: 12, name: 'Váy hoa', price: 450000, sale_price: 279000, shipping_policy: 'Freeship', material: 'Lụa Mango Hàn Quốc', size_guide: 'Size XL: 66-75kg', images: [
   ...[1, 2, 3].map(id => ({ facebook_attachment_id: `image-${id}` })),
@@ -53,9 +55,13 @@ test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship c
   assert.doesNotMatch(message, /279|ưu đãi|Freeship|Mai/);
 });
 
-test('cả hai SKU Mango dùng chung nguyên văn lời báo giá', () => {
+test('cả hai SKU Mango dùng chung hai bong bóng chất liệu và ưu đãi', () => {
   assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-279' }), PROMOTION_MESSAGE);
   assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), PROMOTION_MESSAGE);
+  assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-279' }), [MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
+  assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), [MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
+  assert.equal(MANGO_PROMOTION_MESSAGES.length, 2);
+  assert.equal(MANGO_PROMOTION_MESSAGES.some(message => message.includes('\n')), false);
 });
 
 test('gửi một video nếu có và không gửi lại video đã lưu', () => {
@@ -86,15 +92,15 @@ test('mẫu chưa có ảnh vẫn chỉ xin số đo một lần', () => {
 
 test('báo giá Mango không có tên chỉ thuộc mẫu trong dấu vết media trước đó', () => {
   const mango = { ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279' };
-  const oldScript = ['[Video sản phẩm 12:old-video]', '[Ảnh sản phẩm 12:old-image]', PROMOTION_MESSAGE, SIZE_QUESTION];
+  const oldScript = ['[Video sản phẩm 12:old-video]', '[Ảnh sản phẩm 12:old-image]', LEGACY_PROMOTION_MESSAGE, SIZE_QUESTION];
   const plan = planIntroduction(mango, oldScript);
   assert.equal(plan.images.length, 3);
   assert.equal(plan.videos.length, 1);
-  assert.deepEqual(plan.messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
+  assert.deepEqual(plan.messages, [...MANGO_PROMOTION_MESSAGES, SIZE_QUESTION]);
 
-  const currentScript = [...oldScript, '[Ảnh sản phẩm 13:image-1]', PROMOTION_MESSAGE, SIZE_QUESTION];
+  const currentScript = [...oldScript, '[Ảnh sản phẩm 13:image-1]', ...MANGO_PROMOTION_MESSAGES, SIZE_QUESTION];
   assert.deepEqual(planIntroduction(mango, currentScript), { images: [], videos: [], messages: [] });
-  assert.deepEqual(planIntroduction(mango, ['[Video sản phẩm 13:video-1]', ...PROMOTION_MESSAGE.split('\n\n'), SIZE_QUESTION]),
+  assert.deepEqual(planIntroduction(mango, ['[Video sản phẩm 13:video-1]', LEGACY_PROMOTION_MESSAGE, SIZE_QUESTION]),
     { images: [], videos: [], messages: [] });
   // Product 12 used the same nameless copy before its current quote changed.
   assert.deepEqual(planIntroduction(product, oldScript), { images: [], videos: [], messages: [] });
@@ -103,7 +109,13 @@ test('báo giá Mango không có tên chỉ thuộc mẫu trong dấu vết medi
 test('media mẫu khác ngắt ngữ cảnh giá và câu hỏi của mẫu hiện tại', () => {
   const mango = { ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279' };
   const plan = planIntroduction(mango, ['[Ảnh sản phẩm 13:image-1]', '[Ảnh sản phẩm 12:old-image]', PROMOTION_MESSAGE, SIZE_QUESTION]);
-  assert.deepEqual(plan.messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
+  assert.deepEqual(plan.messages, [...MANGO_PROMOTION_MESSAGES, SIZE_QUESTION]);
   assert.equal(plan.images.length, 2);
-  assert.deepEqual(planIntroduction(mango, [PROMOTION_MESSAGE, SIZE_QUESTION]).messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
+  assert.deepEqual(planIntroduction(mango, [PROMOTION_MESSAGE, SIZE_QUESTION]).messages, [...MANGO_PROMOTION_MESSAGES, SIZE_QUESTION]);
+});
+
+test('retry Mango chỉ gửi bong bóng còn thiếu, không gộp hai nội dung', () => {
+  const mango = { ...product, id: 13, sku: 'MANGO-HQ-HONG-TIM-279' };
+  const plan = planIntroduction(mango, ['[Ảnh sản phẩm 13:image-1]', MATERIAL_MESSAGE]);
+  assert.deepEqual(plan.messages, [PROMOTION_MESSAGE, SIZE_QUESTION]);
 });

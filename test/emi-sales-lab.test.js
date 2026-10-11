@@ -35,7 +35,7 @@ test('OpenAI request uses configurable model, strict schema, store:false, no too
  let request;const client={responses:{create:async p=>{request=p;return {status:'completed',id:'r',model:'configured-model',output_text:JSON.stringify(output()),usage:{total_tokens:30}};}}};
  const result=await generateBrain(input(),'configured-model',config,{client,customInstructions:'Ưu tiên hỏi dịp mặc trước khi đề xuất.'});
  assert.equal(request.model,'configured-model');assert.equal(request.store,false);assert.equal(request.text.format.strict,true);assert.equal(request.text.format.schema.additionalProperties,false);assert.equal(request.tools,undefined);assert.equal(request.reasoning,undefined);assert.match(request.instructions,/không xuất chain-of-thought/);assert.match(request.instructions,/Ưu tiên hỏi dịp mặc/);assert.match(request.instructions,/không được ghi đè quy tắc an toàn/);assert.deepEqual(result.output,output());
- assert.match(request.instructions,/chiều cao và cân nặng/);assert.match(request.instructions,/viết tắt hoặc gõ thiếu ký tự/);assert.match(request.instructions,/không hỏi lại dữ liệu đã có/);assert.doesNotMatch(request.instructions,/54kg m54/);assert.match(request.instructions,/media_ids/);assert.match(request.instructions,/hai phần tử messages riêng/);
+ assert.match(request.instructions,/chiều cao và cân nặng/);assert.match(request.instructions,/hậu tố gần giống đơn vị đo/);assert.match(request.instructions,/đánh giá lại size theo CATALOG/);assert.match(request.instructions,/không biến thành selected_size/);assert.match(request.instructions,/Không hỏi đặt hàng chỉ vì khách vừa cung cấp hoặc sửa số đo/);assert.match(request.instructions,/không hỏi lại dữ liệu đã có/);assert.doesNotMatch(request.instructions,/54kg m54|58ki/);assert.match(request.instructions,/media_ids/);assert.match(request.instructions,/hai phần tử messages riêng/);
  assert.equal(request.text.format.schema.properties.messages.type,'array');assert.equal(request.text.format.schema.properties.suggested_reply,undefined);
  assert.equal(JSON.parse(request.input[0].content.split('\n').slice(1).join('\n')).customer.id,'test-default');
  for(const response of [{status:'incomplete',output_text:JSON.stringify(output())},{status:'completed',output_text:''},{status:'completed',output_text:'invalid'}])await assert.rejects(generateBrain(input(),'model',config,{client:{responses:{create:async()=>response}}}));
@@ -91,9 +91,10 @@ test('SQLite persists Lab data after reopen; only lab_ tables',()=>{
  const directory=mkdtempSync(join(tmpdir(),'emi-lab-'));try{let store=new LabStore(join(directory,'test.sqlite'));const c=store.customer('Test', 'Mẹ 60kg');store.close();store=new LabStore(join(directory,'test.sqlite'));assert.equal(store.get('customers',c.id).name,'Test');assert.ok(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().every(row=>row.name.startsWith('lab_')));store.close();}finally{rmSync(directory,{recursive:true,force:true});}
 });
 
-test('23 fixtures cover required ambiguity, shorthand measurements and transactions; production modules cannot be imported',()=>{
- assert.equal(SEED_CASES.length,23);for(const c of SEED_CASES)assert.ok(c.input.messages.length);
+test('24 fixtures cover required ambiguity, shorthand measurements and transactions; production modules cannot be imported',()=>{
+ assert.equal(SEED_CASES.length,24);for(const c of SEED_CASES)assert.ok(c.input.messages.length);
  assert.equal(SEED_CASES.find(c=>c.id==='seed-height-shorthand').input.messages[0].text,'54kg m54');
+ assert.equal(SEED_CASES.find(c=>c.id==='seed-weight-unit-typo').input.messages[0].text,'58ki');
  assert.equal(SEED_CASES.find(c=>c.id==='seed-exchange-add').input.messages[0].text,'c đổi c này lấy cái xanh hồi nãy nha ngực chật quá với lấy thêm c bông vàng');
  for(const file of readdirSync(new URL('../lab/',import.meta.url)).filter(f=>f.endsWith('.js'))){const code=readFileSync(new URL(`../lab/${file}`,import.meta.url),'utf8');assert.doesNotMatch(code,/from ['"](?:\.\.\/server\/|\.\.\/api\/|@supabase\/)/);assert.doesNotMatch(code,/graph\.facebook\.com|PAGE_ACCESS_TOKEN|SUPABASE_SECRET_KEY|\/me\/messages/);}
  assert.deepEqual(readdirSync(new URL('../api/',import.meta.url)).filter(f=>f.endsWith('.js')).sort(),['facebook-ads.js','lab.js','products.js','webhook.js']);
@@ -103,7 +104,7 @@ test('HTTP end-to-end chat/feedback/replay/customer/import/export and local orig
  const store=new LabStore(':memory:');const {server}=createLabServer({store,brain});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base=`http://127.0.0.1:${server.address().port}`;
  const call=async(path,body,headers={})=>{const res=await fetch(base+path,body===undefined?{headers}:{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});return {status:res.status,body:await res.json()};};
  try{
- const boot=await call('/lab-api/bootstrap');assert.equal(boot.status,200);assert.equal(boot.body.cases.length,23);assert.equal(JSON.stringify(boot.body).includes('apiKey'),false);
+ const boot=await call('/lab-api/bootstrap');assert.equal(boot.status,200);assert.equal(boot.body.cases.length,24);assert.equal(JSON.stringify(boot.body).includes('apiKey'),false);
  const page=await fetch(base);assert.match(await page.text(),/EMI SALES AGENT LAB/);
  const image=await fetch(base+'/lab/media/lab-a-front.svg');assert.equal(image.status,200);assert.match(image.headers.get('content-type'),/image\/svg/);
  const video=await fetch(base+'/lab/media/lab-a-demo.webm');assert.equal(video.status,200);assert.match(video.headers.get('content-type'),/video\/webm/);
@@ -142,6 +143,20 @@ test('critical evaluation requires m54 to be stored as 154cm and not asked again
  o.new_facts=o.new_facts.filter(f=>f.key!=='height_cm');
  o.messages=['Chị cho em biết chiều cao của chị để em tư vấn size nhé!'];
  assert.equal(evaluateCriticalCase('seed-height-shorthand',o).passed,false);
+});
+
+test('critical evaluation treats a mistyped measurement as a correction, not a purchase choice',()=>{
+ const o=output();
+ o.new_facts=[{subject:'customer',key:'weight_kg',value:'58',kind:'fact',evidence_message_id:'message-0',evidence:'58ki'}];
+ o.memory_updates=[
+  {op:'upsert',subject:'customer',key:'weight_kg',value:'58',kind:'fact',evidence_message_id:'message-0',evidence:'58ki'},
+  {op:'upsert',subject:'product:LAB-A',key:'recommended_size',value:'L',kind:'inference',evidence_message_id:'message-0',evidence:'58ki'}
+ ];
+ o.messages=['Dạ nếu chị nặng 58kg thì theo bảng mẫu này chị tham khảo size L ạ.'];
+ assert.equal(evaluateCriticalCase('seed-weight-unit-typo',o).passed,true);
+ o.memory_updates.push({op:'upsert',subject:'product:LAB-A',key:'selected_size',value:'M',kind:'inference',evidence_message_id:'message-0',evidence:'58ki'});
+ o.purchase_intent.transactions=[{action:'select',source_product_id:null,target_product_id:'LAB-A',quantity:1,confirmation:'unconfirmed',description:'Chọn M'}];
+ assert.equal(evaluateCriticalCase('seed-weight-unit-typo',o).passed,false);
 });
 
 test('OpenAI errors are sanitized without exposing credentials',async()=>{

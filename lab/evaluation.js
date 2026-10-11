@@ -15,6 +15,12 @@ export function evaluateCriticalCase(caseId, output) {
     const reply=output.messages.join(' ').toLocaleLowerCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');
     add('Không hỏi lại chiều cao',!/(cho em (biet|xin)|xin them)[^?.!]{0,40}(chieu cao|cao)|(chieu cao|cao)[^?.!]{0,20}(bao nhieu|la bao nhieu)/.test(reply));
   }
+  if(caseId==='seed-weight-unit-typo') {
+    add('Cân nặng mới được hiểu là 58kg',observations.some(m=>m.subject==='customer'&&m.key==='weight_kg'&&m.value==='58'&&m.kind==='fact'));
+    add('Đánh giá lại thành size L',observations.some(m=>m.subject==='product:LAB-A'&&m.key==='recommended_size'&&m.value.toLocaleUpperCase('vi-VN')==='L'&&m.kind==='inference'));
+    add('Không biến size M từng tư vấn thành lựa chọn',!observations.some(m=>m.key==='selected_size'&&m.value.toLocaleUpperCase('vi-VN')==='M'));
+    add('Không tự chuyển sang đặt hàng',!output.purchase_intent.confirmed&&!transactions.some(t=>['buy','select','confirm'].includes(t.action)));
+  }
   if(caseId==='seed-ok-size'||caseId==='seed-like-not-select') add('Không tự xác nhận mua',!output.purchase_intent.confirmed&&!transactions.some(t=>['buy','confirm'].includes(t.action)&&t.confirmation==='confirmed'));
   if(caseId==='seed-ads-switch') add('Chuyển mẫu sang B',output.current_product_id==='LAB-B');
   if(['seed-exchange-add','seed-exchange-uncertain'].includes(caseId)) {
