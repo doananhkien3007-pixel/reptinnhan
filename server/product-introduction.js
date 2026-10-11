@@ -1,6 +1,6 @@
 import { getCustomerMeasurements } from './size-advice.js';
 
-export const MATERIAL_MESSAGE = 'Vải bên em là lụa Mango Hàn Quốc, mềm mịn, mặc mát và lên dáng rất đẹp chị ạ.';
+export const MATERIAL_MESSAGE = 'Dạ mẫu này bên em là vải lụa mango Hàn Quốc, chất mềm mát, mặc thoải mái, co giãn nhẹ và ko nhăn khi giặt 🌷 Form lên dáng đẹp, không bị bí nóng ạ.';
 export const PROMOTION_MESSAGE = 'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
