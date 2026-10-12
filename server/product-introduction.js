@@ -2,8 +2,7 @@ export const MATERIAL_MESSAGE = 'Dạ mẫu này bên em là vải lụa mango H
 export const PROMOTION_MESSAGE = 'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
-export const SIZE_QUESTION = 'Chị cho em xin số điện thoại, em gọi tư vấn và chọn size chuẩn cho chị ạ 🌷';
-const LEGACY_SIZE_QUESTION = 'Dạ chị cho em xin chiều cao + cân nặng, em tư vấn chuẩn size cho mình luôn ạ 🥰';
+export const SIZE_QUESTION = 'Dạ chị cho em xin chiều cao + cân nặng, em tư vấn chuẩn size cho mình luôn ạ 🥰';
 const MANGO_PROMOTION_SKUS = new Set(['MANGO-HQ-279', 'MANGO-HQ-HONG-TIM-279']);
 
 export const normalizeText = (value) => String(value || '').normalize('NFD')
@@ -25,14 +24,14 @@ export function getPromotionMessages(product) {
 }
 
 // Only outbound shop messages count as completed introduction steps.
-export function planIntroduction(product, texts, { allowLegacy = false } = {}) {
+export function planIntroduction(product, texts, { allowLegacy = false, history = [], receivedText = '' } = {}) {
   const prefix = `Dạ mẫu ${product.name}: `;
   const promotionMessages = getPromotionMessages(product);
   const sentPromotionMessages = new Set();
   const legacyPromotionQuotes = new Set([LEGACY_PROMOTION_MESSAGE, ...LEGACY_PROMOTION_MESSAGE.split('\n\n')]);
   let currentProduct = false;
   let legacyPromotionSent = false;
-  let followupSent = false;
+  const productQuestions = [];
   for (const text of texts) {
     // Historical quotes can be identical across products. The scoped media
     // marker identifies which product the following nameless quote belongs to.
@@ -48,14 +47,12 @@ export function planIntroduction(product, texts, { allowLegacy = false } = {}) {
       if (promotionMessages.includes(text)) sentPromotionMessages.add(text);
       if (legacyPromotionQuotes.has(text)) legacyPromotionSent = true;
     }
-    const normalized = normalizeText(text);
-    const legacyMeasurementQuestion = /can nang|chieu cao/.test(normalized) && /xin|cho em|cho shop|\?/.test(normalized);
-    if ((currentProduct || allowLegacy) && (text === SIZE_QUESTION || text === LEGACY_SIZE_QUESTION || legacyMeasurementQuestion)) followupSent = true;
+    if ((currentProduct || allowLegacy) && /can nang|chieu cao/.test(normalizeText(text)) &&
+        /xin|cho em|cho shop|\?/.test(normalizeText(text))) productQuestions.push(text);
   }
-  // Promotion followed by either the current phone request or the former
-  // measurement request completes this product's script.
+  // Promotion followed by the measurement question completes this product's script.
   const promotionComplete = legacyPromotionSent || sentPromotionMessages.size === promotionMessages.length;
-  if (promotionComplete && followupSent) {
+  if (promotionComplete && productQuestions.some(text => /can nang/.test(normalizeText(text)) && /chieu cao/.test(normalizeText(text)))) {
     return { images: [], videos: [], messages: [] };
   }
   const images = [...new Map((product.images || [])
@@ -66,6 +63,11 @@ export function planIntroduction(product, texts, { allowLegacy = false } = {}) {
     .filter((item) => item.media_type === 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 1);
+  const questions = [];
+  const measurements = getCustomerMeasurements(history, receivedText);
+  const questionTexts = productQuestions.map(normalizeText);
+  if (measurements.weight === null && !questionTexts.some((text) => /can nang|nang (bao nhieu|may)/.test(text))) questions.push('cân nặng');
+  if (measurements.weight === null && measurements.height === null && !questionTexts.some((text) => /chieu cao|cao (bao nhieu|may)/.test(text))) questions.push('chiều cao');
   return {
     images: images.map((image, index) => ({
       image,
@@ -81,7 +83,8 @@ export function planIntroduction(product, texts, { allowLegacy = false } = {}) {
     })).filter(({ marker, legacyMarker }) => !texts.includes(marker) && !(allowLegacy && texts.includes(legacyMarker))),
     messages: [
       ...(legacyPromotionSent ? [] : promotionMessages.filter(message => !sentPromotionMessages.has(message))),
-      followupSent ? null : SIZE_QUESTION
+      questions.length === 2 ? SIZE_QUESTION : questions.length ? `Dạ chị cho em xin ${questions[0]}, em tư vấn size cho mình ạ.` : null
     ].filter(Boolean)
   };
 }
+import { getCustomerMeasurements } from './size-advice.js';
