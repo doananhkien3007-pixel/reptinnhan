@@ -56,12 +56,29 @@ test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship c
 });
 
 test('cả hai SKU Mango dùng chung hai bong bóng chất liệu và ưu đãi', () => {
+  assert.equal(MATERIAL_MESSAGE, 'Dạ chất vải là lụa Mango Hàn Quốc, mềm mát, nhẹ và có độ rũ nên mặc lên dáng đẹp, thoải mái chị nha 🌷');
+  assert.equal(PROMOTION_MESSAGE, 'Mẫu này đang giảm 20% còn 279K + miễn phí ship ạ. Chị được kiểm tra và mặc thử trước khi thanh toán, vừa ý mình mới nhận nha.');
+  assert.equal(SIZE_QUESTION, 'Dạ chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ 🥰');
   assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-279' }), PROMOTION_MESSAGE);
   assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), PROMOTION_MESSAGE);
   assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-279' }), [MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
   assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), [MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
   assert.equal(MANGO_PROMOTION_MESSAGES.length, 2);
   assert.equal(MANGO_PROMOTION_MESSAGES.some(message => message.includes('\n')), false);
+});
+
+test('nội dung Mango ngay trước lần rút gọn vẫn được nhận diện để không gửi lặp', () => {
+  const mango = { ...product, sku: 'MANGO-HQ-279' };
+  const previousMessages = [
+    '[Ảnh sản phẩm 12:image-1]',
+    '[Ảnh sản phẩm 12:image-2]',
+    '[Ảnh sản phẩm 12:image-3]',
+    '[Video sản phẩm 12:video-1]',
+    'Chất vải bên em là vải lụa mango Hàn Quốc, chất mềm mát, mặc thoải mái, co giãn nhẹ và ko nhăn khi giặt. 🌷 Form lên dáng đẹp, không bị bí nóng ạ',
+    'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.',
+    'Dạ chị cho em xin chiều cao + cân nặng, em tư vấn chuẩn size cho mình luôn ạ 🥰'
+  ];
+  assert.deepEqual(planIntroduction(mango, previousMessages), { images: [], videos: [], messages: [] });
 });
 
 test('gửi một video nếu có và không gửi lại video đã lưu', () => {

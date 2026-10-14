@@ -1,8 +1,12 @@
-export const MATERIAL_MESSAGE = 'Chất vải bên em là vải lụa mango Hàn Quốc, chất mềm mát, mặc thoải mái, co giãn nhẹ và ko nhăn khi giặt. 🌷 Form lên dáng đẹp, không bị bí nóng ạ';
-export const PROMOTION_MESSAGE = 'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.';
+export const MATERIAL_MESSAGE = 'Dạ chất vải là lụa Mango Hàn Quốc, mềm mát, nhẹ và có độ rũ nên mặc lên dáng đẹp, thoải mái chị nha 🌷';
+export const PROMOTION_MESSAGE = 'Mẫu này đang giảm 20% còn 279K + miễn phí ship ạ. Chị được kiểm tra và mặc thử trước khi thanh toán, vừa ý mình mới nhận nha.';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([MATERIAL_MESSAGE, PROMOTION_MESSAGE]);
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
-export const SIZE_QUESTION = 'Dạ chị cho em xin chiều cao + cân nặng, em tư vấn chuẩn size cho mình luôn ạ 🥰';
+const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
+  'Chất vải bên em là vải lụa mango Hàn Quốc, chất mềm mát, mặc thoải mái, co giãn nhẹ và ko nhăn khi giặt. 🌷 Form lên dáng đẹp, không bị bí nóng ạ',
+  'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.'
+]);
+export const SIZE_QUESTION = 'Dạ chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ 🥰';
 const MANGO_PROMOTION_SKUS = new Set(['MANGO-HQ-279', 'MANGO-HQ-HONG-TIM-279']);
 
 export const normalizeText = (value) => String(value || '').normalize('NFD')
@@ -33,6 +37,8 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
   let legacyPromotionSent = false;
   const productQuestions = [];
   for (const text of texts) {
+    const previousPromotionIndex = PREVIOUS_MANGO_PROMOTION_MESSAGES.indexOf(text);
+    const isPreviousMangoPromotion = MANGO_PROMOTION_SKUS.has(product.sku) && previousPromotionIndex >= 0;
     // Historical quotes can be identical across products. The scoped media
     // marker identifies which product the following nameless quote belongs to.
     const mediaProductId = text.match(/^\[(?:Ảnh|Video) sản phẩm (\d+):[^\]]+\]$/)?.[1];
@@ -40,11 +46,14 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
     if (text.startsWith(prefix)) {
       currentProduct = true;
       promotionMessages.forEach(message => sentPromotionMessages.add(message));
-    } else if (text.startsWith('Dạ mẫu ') && !promotionMessages.includes(text)) currentProduct = false;
+    } else if (text.startsWith('Dạ mẫu ') && !promotionMessages.includes(text) && !isPreviousMangoPromotion) currentProduct = false;
     // Nameless Mango copy belongs to the product identified by the preceding
     // media marker. Keep recognizing the former combined copy after rollout.
     if (currentProduct || allowLegacy) {
       if (promotionMessages.includes(text)) sentPromotionMessages.add(text);
+      if (isPreviousMangoPromotion) {
+        sentPromotionMessages.add(promotionMessages[previousPromotionIndex]);
+      }
       if (legacyPromotionQuotes.has(text)) legacyPromotionSent = true;
     }
     if ((currentProduct || allowLegacy) && /can nang|chieu cao/.test(normalizeText(text)) &&
