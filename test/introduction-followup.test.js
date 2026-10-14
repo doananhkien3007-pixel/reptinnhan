@@ -56,14 +56,14 @@ test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship c
 });
 
 test('cả hai SKU Mango dùng chung một bong bóng ưu đãi và chất liệu', () => {
-  assert.equal(PROMOTION_MESSAGE, '🌷 Dạ mẫu này bên em đang giảm 40% còn 279k và miễn phí vận chuyển toàn quốc 🥰 Chất vải là lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, ko nhăn khi giặt máy và lên form cũng rất đẹp chị ạ.');
-  assert.equal(SIZE_QUESTION, 'Dạ chị cho em xin chiều cao + cân nặng, em tư vấn chuẩn size cho mình luôn ạ');
+  assert.equal(PROMOTION_MESSAGE, '🌷 Dạ mẫu này hôm nay bên em đang giảm còn 279K + miễn phí vận chuyển chị nha.\nVải lụa Mango Hàn Quốc, mềm mịn, mặc mát và nhẹ người ạ 🥰');
+  assert.equal(SIZE_QUESTION, 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị nha.');
   assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-279' }), PROMOTION_MESSAGE);
   assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), PROMOTION_MESSAGE);
   assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-279' }), [PROMOTION_MESSAGE]);
   assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), [PROMOTION_MESSAGE]);
   assert.equal(MANGO_PROMOTION_MESSAGES.length, 1);
-  assert.equal(MANGO_PROMOTION_MESSAGES.some(message => message.includes('\n')), false);
+  assert.equal(PROMOTION_MESSAGE.split('\n').length, 2);
 });
 
 test('nội dung Mango ngay trước lần rút gọn vẫn được nhận diện để không gửi lặp', () => {

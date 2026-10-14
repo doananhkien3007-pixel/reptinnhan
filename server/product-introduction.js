@@ -1,11 +1,12 @@
-export const PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang giảm 40% còn 279k và miễn phí vận chuyển toàn quốc 🥰 Chất vải là lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, ko nhăn khi giặt máy và lên form cũng rất đẹp chị ạ.';
+export const PROMOTION_MESSAGE = '🌷 Dạ mẫu này hôm nay bên em đang giảm còn 279K + miễn phí vận chuyển chị nha.\nVải lụa Mango Hàn Quốc, mềm mịn, mặc mát và nhẹ người ạ 🥰';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([PROMOTION_MESSAGE]);
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
+  '🌷 Dạ mẫu này bên em đang giảm 40% còn 279k và miễn phí vận chuyển toàn quốc 🥰 Chất vải là lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, ko nhăn khi giặt máy và lên form cũng rất đẹp chị ạ.',
   'Mẫu này đang giảm 20% còn 279K + miễn phí ship ạ. Chị được kiểm tra và mặc thử trước khi thanh toán, vừa ý mình mới nhận nha.',
   'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.'
 ]);
-export const SIZE_QUESTION = 'Dạ chị cho em xin chiều cao + cân nặng, em tư vấn chuẩn size cho mình luôn ạ';
+export const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị nha.';
 const MANGO_PROMOTION_SKUS = new Set(['MANGO-HQ-279', 'MANGO-HQ-HONG-TIM-279']);
 
 export const normalizeText = (value) => String(value || '').normalize('NFD')
