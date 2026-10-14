@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { MATERIAL_MESSAGE, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
+import { PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
 
 test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads mới nhất', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -272,11 +272,11 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
       delete product.sku;
     });
-    await scenario('preview nhớ đoạn báo giá Mango nhiều đoạn, không gửi lại giá hoặc ảnh', async () => {
+    await scenario('preview nhớ tin báo giá Mango, không gửi lại giá hoặc ảnh', async () => {
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';
       const first=await action('POST','preview_reply',{message:'Xin giá',sender_id:'customer'});
-      assert.deepEqual(first.messages.slice(0,2),[MATERIAL_MESSAGE,PROMOTION_MESSAGE]);
+      assert.deepEqual(first.messages,[PROMOTION_MESSAGE,SIZE_QUESTION]);
       const history=[{direction:'inbound',text:'Xin giá'},{direction:'outbound',text:[...first.media_markers,...first.messages].join('\n\n')}];
       const second=await action('POST','preview_reply',{message:'Gửi mẫu',sender_id:'customer',preview_history:history});
       assert.equal(second.skipped,true); assert.deepEqual(second.media_ids,[]); assert.deepEqual(second.messages,[]);
@@ -287,7 +287,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';
       seed('[Video sản phẩm 12:old-video]'); seed('[Ảnh sản phẩm 12:old-image]');
-      seed(MATERIAL_MESSAGE); seed(PROMOTION_MESSAGE); seed(SIZE_QUESTION);
+      seed(PROMOTION_MESSAGE); seed(SIZE_QUESTION);
       const preview=await action('POST','preview_reply',{message:'Xin giá',sender_id:'customer'});
       assert.equal(preview.skipped,false); assert.equal(preview.product_id,13);
       assert.deepEqual(preview.messages,[...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION]);

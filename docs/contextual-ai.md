@@ -12,7 +12,7 @@ Messenger chỉ chạy kịch bản: **hình sản phẩm → video nếu có �
 
 ## Bộ giới thiệu
 
-Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Hai mẫu SKU `MANGO-HQ-279` (Ads `52589265758103`) và `MANGO-HQ-HONG-TIM-279` dùng chung hai bong bóng riêng theo thứ tự: giới thiệu chất liệu lụa Mango Hàn Quốc; sau đó báo giảm 20% còn 279K, miễn phí ship và chính sách kiểm tra/mặc thử trước khi thanh toán. Không nối hai nội dung bằng xuống dòng. Các mẫu khác dùng giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Cuối cùng xin chiều cao và cân nặng bằng một bong bóng riêng.
+Gửi tối đa bốn ảnh đã có Facebook attachment ID, ưu tiên ảnh chính; sau đó tối đa một video nếu có Facebook attachment ID. Hai mẫu SKU `MANGO-HQ-279` (Ads `52589265758103`) và `MANGO-HQ-HONG-TIM-279` dùng chung một bong bóng giới thiệu ưu đãi giảm 40% còn 279K, miễn phí vận chuyển toàn quốc và chất liệu lụa Mango Hàn Quốc. Các mẫu khác dùng giá `sale_price` khi thấp hơn `price`, giá gốc và chính sách vận chuyển đã lưu của đúng mẫu. Cuối cùng xin chiều cao và cân nặng bằng một bong bóng riêng, nên phần chữ của kịch bản Mango có tổng cộng hai tin.
 
 ## Trạng thái theo UID khách + sản phẩm
 
