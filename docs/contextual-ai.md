@@ -28,7 +28,7 @@ Với khách cũ chưa có trạng thái mới, server đọc lịch sử đã l
 
 Lời báo giá cũ không ghi tên mẫu chỉ được tính khi dấu vết ảnh/video trước đó xác định đúng ID sản phẩm. Dấu vết media của mẫu khác đổi ngữ cảnh lịch sử; nội dung báo giá giống nhau không đánh dấu hai mẫu là đã giới thiệu. Nếu không xác định được mẫu của lời báo giá cũ, không dùng lời đó để chặn mẫu hiện tại.
 
-Khách gửi cân nặng/chiều cao hoặc thông tin nhận hàng trước khi gửi hết bộ giới thiệu cũng được nhường cho nhân viên: trạng thái `human_handoff` **của đúng khách + sản phẩm**. Số đo của mẫu A và khóa bàn giao toàn khách cũ không chặn giới thiệu mẫu B. Sau khi đã giới thiệu, bot im lặng ngay, không cần đợi khách trả lời số đo. Tin khách vẫn được lưu và hiện trong hộp thư.
+Khách gửi cân nặng/chiều cao hoặc thông tin nhận hàng trước khi gửi hết bộ giới thiệu thường được nhường cho nhân viên: trạng thái `human_handoff` **của đúng khách + sản phẩm**. Riêng ba mẫu Mango có SKU `MANGO-HQ-279`, `MANGO-HQ-HONG-TIM-279` và `MANGO-HQ-HOA-7MAU-279` luôn gửi đủ bộ giới thiệu trước, kể cả khi tin đầu tiên đã có số đo, rồi mới im lặng để nhân viên tiếp tục. Số đo của mẫu A và khóa bàn giao toàn khách cũ không chặn giới thiệu mẫu B. Sau khi đã giới thiệu, bot im lặng ngay, không cần đợi khách trả lời số đo. Tin khách vẫn được lưu và hiện trong hộp thư.
 
 ## Human reset
 

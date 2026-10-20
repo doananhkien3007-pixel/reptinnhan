@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
-import { planIntroduction, SIZE_QUESTION, getPromotionMessage, getPromotionMessages, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES } from '../server/product-introduction.js';
+import { planIntroduction, SIZE_QUESTION, MAX_INTRODUCTION_IMAGES, getPromotionMessage, getPromotionMessages, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
 
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 
@@ -55,13 +55,15 @@ test('mẫu không giảm giá không dùng giá khuyến mãi hoặc freeship c
   assert.doesNotMatch(message, /279|ưu đãi|Freeship|Mai/);
 });
 
-test('cả hai SKU Mango dùng chung một bong bóng ưu đãi và chất liệu', () => {
+test('các SKU Mango dùng chung hai bong bóng tư vấn đã cấu hình', () => {
   assert.equal(PROMOTION_MESSAGE, '🌷 Dạ mẫu này hôm nay bên em đang giảm 40% còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰');
-  assert.equal(SIZE_QUESTION, 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị nha.');
-  assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-279' }), PROMOTION_MESSAGE);
-  assert.equal(getPromotionMessage({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), PROMOTION_MESSAGE);
-  assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-279' }), [PROMOTION_MESSAGE]);
-  assert.deepEqual(getPromotionMessages({ ...product, sku: 'MANGO-HQ-HONG-TIM-279' }), [PROMOTION_MESSAGE]);
+  assert.equal(SIZE_QUESTION, 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ.🥰');
+  for (const sku of ['MANGO-HQ-279', 'MANGO-HQ-HONG-TIM-279', 'MANGO-HQ-HOA-7MAU-279']) {
+    assert.equal(getPromotionMessage({ ...product, sku }), PROMOTION_MESSAGE);
+    assert.deepEqual(getPromotionMessages({ ...product, sku }), [PROMOTION_MESSAGE]);
+    assert.equal(shouldIntroduceBeforeHandoff({ ...product, sku }), true);
+  }
+  assert.equal(shouldIntroduceBeforeHandoff({ ...product, sku: 'VAY-THUONG' }), false);
   assert.equal(MANGO_PROMOTION_MESSAGES.length, 1);
   assert.equal(PROMOTION_MESSAGE.split('\n').length, 2);
 });
@@ -85,6 +87,20 @@ test('gửi một video nếu có và không gửi lại video đã lưu', () =>
   assert.equal(plan.videos.length,1);
   assert.equal(plan.videos[0].video.facebook_attachment_id,'video-1');
   assert.deepEqual(planIntroduction(product,[plan.videos[0].marker]).videos,[]);
+});
+
+test('album giới thiệu gửi tối đa đủ bảy ảnh theo thứ tự ưu tiên', () => {
+  const images = [1, 2, 3, 4, 5, 6, 7, 8].map(id => ({
+    facebook_attachment_id: `album-image-${id}`,
+    sort_order: id
+  }));
+  images[6].is_primary = true;
+  const plan = planIntroduction({ ...product, images }, []);
+  assert.equal(MAX_INTRODUCTION_IMAGES, 7);
+  assert.deepEqual(plan.images.map(item => item.image.facebook_attachment_id), [
+    'album-image-7', 'album-image-1', 'album-image-2', 'album-image-3',
+    'album-image-4', 'album-image-5', 'album-image-6'
+  ]);
 });
 
 test('khách đã nhận giá và câu xin số đo không nhận lại media hay giá mới', () => {

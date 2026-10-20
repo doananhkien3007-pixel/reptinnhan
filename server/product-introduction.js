@@ -10,14 +10,23 @@ const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
   'Mẫu này đang giảm 20% còn 279K + miễn phí ship ạ. Chị được kiểm tra và mặc thử trước khi thanh toán, vừa ý mình mới nhận nha.',
   'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.'
 ]);
-export const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị nha.';
-const MANGO_PROMOTION_SKUS = new Set(['MANGO-HQ-279', 'MANGO-HQ-HONG-TIM-279']);
+export const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ.🥰';
+export const MAX_INTRODUCTION_IMAGES = 7;
+const MANGO_PROMOTION_SKUS = new Set([
+  'MANGO-HQ-279',
+  'MANGO-HQ-HONG-TIM-279',
+  'MANGO-HQ-HOA-7MAU-279'
+]);
+
+export function shouldIntroduceBeforeHandoff(product) {
+  return MANGO_PROMOTION_SKUS.has(product?.sku);
+}
 
 export const normalizeText = (value) => String(value || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
 
 export function getPromotionMessage(product) {
-  if (MANGO_PROMOTION_SKUS.has(product.sku)) return PROMOTION_MESSAGE;
+  if (shouldIntroduceBeforeHandoff(product)) return PROMOTION_MESSAGE;
   const price = Number(product.price);
   const salePrice = Number(product.sale_price);
   const hasSale = product.sale_price != null && Number.isFinite(salePrice) && salePrice > 0 && salePrice < price;
@@ -28,7 +37,7 @@ export function getPromotionMessage(product) {
 }
 
 export function getPromotionMessages(product) {
-  return MANGO_PROMOTION_SKUS.has(product.sku) ? [...MANGO_PROMOTION_MESSAGES] : [getPromotionMessage(product)];
+  return shouldIntroduceBeforeHandoff(product) ? [...MANGO_PROMOTION_MESSAGES] : [getPromotionMessage(product)];
 }
 
 // Only outbound shop messages count as completed introduction steps.
@@ -71,7 +80,7 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
   const images = [...new Map((product.images || [])
     .filter((item) => item.media_type !== 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0))
-    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, 4);
+    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, MAX_INTRODUCTION_IMAGES);
   const videos = [...new Map((product.images || [])
     .filter((item) => item.media_type === 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))

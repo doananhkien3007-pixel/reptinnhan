@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
+import { MAX_INTRODUCTION_IMAGES, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
 
 test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads mới nhất', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -238,7 +238,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
   });
   const messageValues = () => sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id);
   const introductionValues = p => [
-    ...p.images.filter(item => item.media_type !== 'video').sort((a,b) => Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)) || (a.sort_order || 0)-(b.sort_order || 0)).map(item => item.facebook_attachment_id).slice(0,4),
+    ...p.images.filter(item => item.media_type !== 'video').sort((a,b) => Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)) || (a.sort_order || 0)-(b.sort_order || 0)).map(item => item.facebook_attachment_id).slice(0,MAX_INTRODUCTION_IMAGES),
     ...p.images.filter(item => item.media_type === 'video').sort((a,b) => (a.sort_order || 0)-(b.sort_order || 0)).slice(0,1).map(item => item.facebook_attachment_id),
     ...getPromotionMessages(p), SIZE_QUESTION
   ];
@@ -272,6 +272,13 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
       delete product.sku;
     });
+    await scenario('Mango mới vẫn gửi bộ tư vấn trước khi nhường Human nếu tin đầu đã có cân nặng', async () => {
+      const mango={...adProduct,sku:'MANGO-HQ-HOA-7MAU-279'};
+      extraProducts=[mango]; adMappings.set('52592809031703',13);
+      await deliver('Có size 75 ký không',{referral:{ad_id:'52592809031703'},timestamp:1000});
+      assert.deepEqual(messageValues(),introductionValues(mango));
+      assert.equal(settings.get('product_intro:customer:13').value.status,'introduced');
+    });
     await scenario('preview nhớ tin báo giá Mango, không gửi lại giá hoặc ảnh', async () => {
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';
@@ -282,6 +289,15 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       assert.equal(second.skipped,true); assert.deepEqual(second.media_ids,[]); assert.deepEqual(second.messages,[]);
       assert.equal(settings.has('product_intro:customer:13'),false);
       assert.equal(sentToMessenger.length,0);
+    });
+    await scenario('preview Mango mới có cân nặng vẫn hiện bộ tư vấn trước', async () => {
+      const mango={...adProduct,sku:'MANGO-HQ-HOA-7MAU-279'};
+      extraProducts=[mango]; adMappings.set('52592809031703',13); conversation.ad_id='52592809031703';
+      const result=await action('POST','preview_reply',{message:'Có size 75 ký không',sender_id:'customer'});
+      assert.equal(result.intent,'product_introduction');
+      assert.equal(result.skipped,false);
+      assert.deepEqual(result.messages,[...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION]);
+      assert.deepEqual(result.media_ids,mango.images.map(item=>item.facebook_attachment_id));
     });
     await scenario('lịch sử báo giá Mango của mẫu cũ không chặn preview và webhook mẫu 13', async () => {
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};

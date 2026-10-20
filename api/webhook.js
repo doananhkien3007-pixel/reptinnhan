@@ -10,7 +10,7 @@ import { getAdReferral } from '../server/ad-referral.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
 import { syncFacebookProfile } from '../server/facebook-profile.js';
 import { readWebhookBody } from '../server/webhook-body.js';
-import { planIntroduction } from '../server/product-introduction.js';
+import { planIntroduction, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
 import { readIntroductionState, saveIntroductionState } from '../server/product-introduction-state.js';
 import { authorizeOrders } from '../server/orders.js';
@@ -348,8 +348,14 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
       addTaskLog('Auto-reply', 'Dừng lượt đang xử lý vì người quản trị đã tắt bot');
       break;
     }
-    if (index > 0) await waitBetweenReplies(500, 1000);
     const action = plan.actions[index];
+    const previousAction = plan.actions[index - 1];
+    // Send adjacent images immediately so Messenger can group them visually as
+    // one album. Keep the human-like pause before video/text transitions.
+    if (index > 0 && !(previousAction?.type === 'media' && action.type === 'media' &&
+        previousAction.media?.media_type !== 'video' && action.media?.media_type !== 'video')) {
+      await waitBetweenReplies(500, 1000);
+    }
     if (action.type === 'text') await sendMessengerMessage(recipientId, action.text, conversation.id);
     else await sendMessengerMedia(recipientId, action.media, conversation.id, action.marker);
     state = { ...state, sent_count: index + 1,
@@ -417,8 +423,10 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
     let introductionState = context.product ? await readIntroductionState(senderPsid, context.product.id) : null;
     const alreadyIntroduced = introductionState?.status === 'introduced';
     const staleTurn = turn.value.introduction_version && introductionState?.version !== turn.value.introduction_version;
+    const introductionFirst = shouldIntroduceBeforeHandoff(context.product) &&
+      (!introductionState || introductionState.status === 'pending' || introductionState.status === 'sending');
     if (context.product && !staleTurn && !alreadyIntroduced && introductionState?.status !== 'human_handoff' &&
-        getIntroductionFollowup(context.product, [], receivedText)) {
+        !introductionFirst && getIntroductionFollowup(context.product, [], receivedText)) {
       introductionState = { ...introductionState, status: 'human_handoff', version: introductionState?.version || randomUUID() };
       await saveIntroductionState(senderPsid, context.product.id, introductionState);
       addTaskLog('Human', `Khách ${senderPsid} gửi số đo/thông tin nhận hàng cho mẫu ${context.product.id}, nhường nhân viên`);
@@ -589,7 +597,10 @@ export default async function handler(req, res) {
         });
         const state = senderId && context.product ? await readIntroductionState(senderId, context.product.id) : null;
         const alreadyIntroduced = state?.status === 'introduced';
-        const handedOff = state?.status === 'human_handoff' || Boolean(getIntroductionFollowup(context.product, previewHistory, text));
+        const introductionFirst = shouldIntroduceBeforeHandoff(context.product) &&
+          (!state || state.status === 'pending' || state.status === 'sending');
+        const handedOff = state?.status === 'human_handoff' ||
+          (!introductionFirst && Boolean(getIntroductionFollowup(context.product, previewHistory, text)));
         const sentTexts = [...(senderId && !state ? await getAllSentTexts(senderId) : []), ...previewHistory.filter(item => item.direction === 'outbound').flatMap(item => item.text.split('\n\n'))];
         const remaining = state?.status === 'sending' ? state.actions.slice(state.sent_count || 0) : null;
         const introduction = !handedOff && !alreadyIntroduced && context.product
