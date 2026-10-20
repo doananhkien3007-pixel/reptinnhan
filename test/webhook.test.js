@@ -51,6 +51,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
   let failCheckpointAfterOrder = false;
   let failHandoffOnce = false;
   let failAdUpdateOnce = false;
+  const profileCustomerId = '28763097236660294';
   const emptyCheckout = () => ({ action:'none',action_source:null,address_complete:false,multiple_items:false,
     ...Object.fromEntries(['customer_name','phone','address','size','color','quantity'].map(k=>[k,{value:null,source:null}])) });
   const field = value => ({value,source:value});
@@ -61,7 +62,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
   });
 
   globalThis.fetch = async (input, init = {}) => {
-    const url = new URL(typeof input === 'string' ? input : input.url);
+    const url = new URL(input instanceof URL ? input : typeof input === 'string' ? input : input.url);
     const method = init.method || 'GET';
     if (url.hostname === 'api.openai.com') {
       const payload = JSON.parse(init.body);
@@ -72,6 +73,12 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       } : { error: { message: 'OpenAI unavailable', type: 'api_error' } }, aiStatus);
     }
     if (url.hostname === 'graph.facebook.com') {
+      if (method === 'GET') {
+        assert.equal(url.pathname, `/v26.0/${profileCustomerId}`);
+        assert.equal(url.searchParams.get('fields'), 'first_name,last_name,name,profile_pic');
+        assert.equal(new Headers(init.headers).get('authorization'), 'Bearer test-page-token');
+        return json({ first_name: 'Lan', last_name: 'Nguyễn', name: 'Lan Nguyễn', profile_pic: 'https://img.example/lan.jpg' });
+      }
       const payload = JSON.parse(init.body);
       if (payload.sender_action) return json({ recipient_id: 'customer' });
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -223,7 +230,8 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
     aiRequests.length = 0;
     errors.length = 0;
     settings.clear();
-    conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', ad_id: 'default-ad', current_product_id: 7 };
+    conversation = { id: 11, channel: 'facebook', external_user_id: 'customer', ad_id: 'default-ad', current_product_id: 7,
+      facebook_name: 'Khách thử nghiệm', facebook_profile_pic: 'https://img.example/cached.jpg', profile_updated_at: new Date().toISOString() };
     failHistory = false;
     multipleProducts = false;
     extraProducts = []; adMappings.clear(); adMappings.set('default-ad',7);
@@ -259,10 +267,14 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
   try {
     await scenario('chỉ gửi ảnh, video nếu có, giá và xin số đo; không gọi AI hay tự tạo đơn', async () => {
       process.env.MESSENGER_MODE = 'contextual_ai'; process.env.AUTO_ORDERS_ENABLED = 'true';
-      await deliver('mẫu này giá bao nhiêu');
+      Object.assign(conversation, { external_user_id: profileCustomerId, facebook_name: null, facebook_profile_pic: null });
+      const profileEvent = { sender: { id: profileCustomerId } };
+      await deliver('mẫu này giá bao nhiêu', profileEvent);
+      assert.equal(conversation.facebook_name, 'Lan Nguyễn');
+      assert.equal(conversation.facebook_profile_pic, 'https://img.example/lan.jpg');
       assert.deepEqual(messageValues(), introductionValues(product));
       assert.equal(aiRequests.length, 0); assert.equal(orders.length, 0); assert.equal(checkoutRow, null);
-      await deliver('còn màu nào'); await deliver('gửi hình lại');
+      await deliver('còn màu nào', profileEvent); await deliver('gửi hình lại', profileEvent);
       assert.deepEqual(messageValues(), introductionValues(product));
     });
     await scenario('Ads 52590312182503 gửi đúng lời ưu đãi Mango và không gửi lại sau đó', async () => {
@@ -363,7 +375,8 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
     });
     await scenario('hai khách cùng sản phẩm có trạng thái riêng', async () => {
       await deliver('Xem mẫu');
-      conversation={id:12,channel:'facebook',external_user_id:'customer-2',ad_id:'default-ad',current_product_id:7};
+      conversation={id:12,channel:'facebook',external_user_id:'customer-2',ad_id:'default-ad',current_product_id:7,
+        facebook_name:'Khách thứ hai',facebook_profile_pic:'https://img.example/customer-2.jpg',profile_updated_at:new Date().toISOString()};
       sentToMessenger.length=0;
       await deliver('Xem mẫu',{sender:{id:'customer-2'}});
       assert.deepEqual(messageValues(),introductionValues(product));

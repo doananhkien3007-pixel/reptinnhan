@@ -148,7 +148,6 @@ async function getStoredMessages() {
   if (error) throw new Error(`Không thể đọc tin nhắn Supabase: ${error.message}`);
   const conversationIds = [...new Set((data || []).map((message) => message.conversation_id).filter(Boolean))];
   const profilesByConversation = new Map();
-  const profileCandidates = new Map();
   if (conversationIds.length) {
     let { data: conversations, error: adError } = await client.from('conversations')
       .select('id, external_user_id, ad_id, facebook_name, facebook_profile_pic, profile_updated_at').in('id', conversationIds);
@@ -163,9 +162,6 @@ async function getStoredMessages() {
       customerName: conversation.facebook_name || null,
       profilePic: conversation.facebook_profile_pic || null
     });
-    for (const conversation of conversations || []) {
-      if (!conversation.facebook_name && conversation.external_user_id) profileCandidates.set(conversation.id, conversation);
-    }
   }
   // Tin nhắn được lưu trước khi có conversation_id vẫn thuộc về cùng khách hàng.
   const senderIds = [...new Set((data || [])
@@ -190,21 +186,6 @@ async function getStoredMessages() {
       customerName: conversation.facebook_name || null,
       profilePic: conversation.facebook_profile_pic || null
     });
-    for (const conversation of conversations || []) {
-      if (!conversation.facebook_name && conversation.external_user_id) profileCandidates.set(conversation.id, conversation);
-    }
-  }
-  if (profileCandidates.size) {
-    const enrichedProfiles = await Promise.all([...profileCandidates.values()].slice(0, 10).map(syncFacebookProfile));
-    for (const conversation of enrichedProfiles) {
-      const profile = {
-        adId: conversation.ad_id || null,
-        customerName: conversation.facebook_name || null,
-        profilePic: conversation.facebook_profile_pic || null
-      };
-      profilesByConversation.set(conversation.id, profile);
-      profilesBySender.set(conversation.external_user_id, profile);
-    }
   }
   return (data || []).reverse().map((message) => ({
     ...(profilesByConversation.get(message.conversation_id) || profilesBySender.get(message.sender_id) || {}),
@@ -423,7 +404,8 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
     turn = await beginCustomerTurn(senderPsid, webhookEvent);
     if (turn.value.complete) return;
     if (channel === 'standby' || !receivedText) {
-      const conversation = await getOrCreateConversation(senderPsid);
+      let conversation = await getOrCreateConversation(senderPsid);
+      conversation = await syncFacebookProfile(conversation);
       await updateConversationAd(conversation, adId, { timestamp: webhookEvent.timestamp });
       await checkpointTurn(turn, { complete: true });
       return;
@@ -451,7 +433,9 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
     if (!turn.value.inbound_saved) {
       await saveMessage(senderPsid, 'inbound', receivedText, conversation.id);
       await checkpointTurn(turn, { inbound_saved: true });
-      global.messages.push({ senderId: senderPsid, adId: conversation.ad_id, direction: 'inbound', text: receivedText,
+      global.messages.push({ senderId: senderPsid, adId: conversation.ad_id,
+        customerName: conversation.facebook_name || null, profilePic: conversation.facebook_profile_pic || null,
+        direction: 'inbound', text: receivedText,
         time: new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) });
       if (global.messages.length > 200) global.messages.shift();
       addTaskLog('Webhook', `Nhận tin từ khách ${senderPsid}: "${receivedText.slice(0, 160)}"`);

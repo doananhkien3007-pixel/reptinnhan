@@ -2,6 +2,11 @@ import { getSupabase } from './supabase.js';
 
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
 
+function hasFacebookProfile(conversation) {
+  return [conversation?.facebook_name, conversation?.facebook_profile_pic]
+    .some((value) => typeof value === 'string' && value.trim());
+}
+
 export async function fetchFacebookProfile(psid, { fetchImpl = fetch } = {}) {
   const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
   const version = process.env.GRAPH_API_VERSION || 'v26.0';
@@ -18,32 +23,42 @@ export async function fetchFacebookProfile(psid, { fetchImpl = fetch } = {}) {
   const firstName = String(result.first_name || '').trim();
   const lastName = String(result.last_name || '').trim();
   const name = String(result.name || `${firstName} ${lastName}`).trim();
+  const profilePic = typeof result.profile_pic === 'string' ? result.profile_pic.trim() : '';
+  if (!name && !profilePic) {
+    throw new Error('Facebook không trả về tên hoặc ảnh đại diện cho PSID này.');
+  }
   return {
     facebook_name: name || null,
     facebook_first_name: firstName || null,
     facebook_last_name: lastName || null,
-    facebook_profile_pic: typeof result.profile_pic === 'string' ? result.profile_pic : null,
+    facebook_profile_pic: /^https:\/\//i.test(profilePic) ? profilePic : null,
     profile_updated_at: new Date().toISOString()
   };
 }
 
-export async function syncFacebookProfile(conversation) {
+export async function syncFacebookProfile(conversation, {
+  fetchImpl = fetch,
+  supabase = getSupabase(),
+  onError = (error, currentConversation) => console.warn(
+    `Không thể đồng bộ hồ sơ Facebook cho khách …${String(currentConversation.external_user_id).slice(-6)}:`,
+    error.message
+  )
+} = {}) {
   if (!conversation?.id || !conversation.external_user_id) return conversation;
   const lastUpdated = conversation.profile_updated_at ? new Date(conversation.profile_updated_at).getTime() : 0;
-  if (lastUpdated && Date.now() - lastUpdated < PROFILE_TTL_MS) return conversation;
-  const supabase = getSupabase();
+  // Chỉ dùng TTL khi đã có dữ liệu thật. Một lần Graph API lỗi không được khóa
+  // khách ở trạng thái "Khách · ID" trong 24 giờ.
+  if (hasFacebookProfile(conversation) && lastUpdated && Date.now() - lastUpdated < PROFILE_TTL_MS) return conversation;
   if (!supabase) return conversation;
   try {
-    const profile = await fetchFacebookProfile(conversation.external_user_id);
+    const profile = await fetchFacebookProfile(conversation.external_user_id, { fetchImpl });
     const { error } = await supabase.from('conversations').update(profile).eq('id', conversation.id);
-    return error ? conversation : { ...conversation, ...profile };
-  } catch {
-    // Facebook may withhold a profile or the migration may not be installed yet.
-    // Profile enrichment is optional and must never block a customer reply.
-    const profileUpdatedAt = new Date().toISOString();
-    try {
-      await supabase.from('conversations').update({ profile_updated_at: profileUpdatedAt }).eq('id', conversation.id);
-    } catch {}
-    return { ...conversation, profile_updated_at: profileUpdatedAt };
+    if (error) throw new Error(`Không thể lưu hồ sơ Facebook: ${error.message}`);
+    return { ...conversation, ...profile };
+  } catch (error) {
+    // Hồ sơ là dữ liệu bổ sung: lỗi không được làm webhook thất bại hay chặn bot.
+    // Không ghi profile_updated_at để tin nhắn tiếp theo có thể thử lại.
+    onError(error, conversation);
+    return conversation;
   }
 }
