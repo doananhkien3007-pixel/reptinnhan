@@ -308,6 +308,38 @@ async function sendMessengerMedia(recipientId, media, conversationId, marker) {
   addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
 }
 
+async function sendMessengerImageAlbum(recipientId, items, conversationId) {
+  const pageAccessToken = process.env.PAGE_ACCESS_TOKEN;
+  const graphApiVersion = process.env.GRAPH_API_VERSION || 'v26.0';
+  if (!pageAccessToken || !recipientId) {
+    throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
+  }
+  if (!Array.isArray(items) || items.length < 2 || items.length > 30) {
+    throw new Error('Album Messenger phải có từ 2 đến 30 ảnh.');
+  }
+  const attachments = items.map(({ image }) => {
+    const imageUrl = String(image?.image_url || '').trim();
+    if (!/^https:\/\//i.test(imageUrl)) throw new Error('Ảnh trong album chưa có URL HTTPS công khai.');
+    return { type: 'image', payload: { url: imageUrl } };
+  });
+  const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+  await withTypingDelay(recipientId, `Album ${items.length} ảnh sản phẩm`, async () => {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient: { id: recipientId }, message: { attachments } })
+    });
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Facebook API gửi album ${response.status}: ${errorBody}`);
+    }
+  });
+  for (const { marker } of items) {
+    await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: marker });
+  }
+  addTaskLog('Messenger', `Đã gửi album ${items.length} ảnh cho khách ${recipientId}`);
+}
+
 function randomDelay(min, max) {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
@@ -326,8 +358,12 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     // Import existing customers once. A Human reset deliberately starts fresh.
     const sentTexts = state ? [] : await getAllSentTexts(recipientId);
     const introduction = planIntroduction(context.product, sentTexts);
+    const canSendAlbum = introduction.images.length > 1 && introduction.images.every(({ image }) =>
+      /^https:\/\//i.test(String(image?.image_url || '').trim()));
     const actions = [
-      ...introduction.images.map(({ image, marker }) => ({ type: 'media', media: image, marker })),
+      ...(canSendAlbum
+        ? [{ type: 'image_album', items: introduction.images }]
+        : introduction.images.map(({ image, marker }) => ({ type: 'media', media: image, marker }))),
       ...introduction.videos.map(({ video, marker }) => ({ type: 'media', media: video, marker })),
       ...introduction.messages.map((text) => ({ type: 'text', text }))
     ];
@@ -357,6 +393,7 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
       await waitBetweenReplies(500, 1000);
     }
     if (action.type === 'text') await sendMessengerMessage(recipientId, action.text, conversation.id);
+    else if (action.type === 'image_album') await sendMessengerImageAlbum(recipientId, action.items, conversation.id);
     else await sendMessengerMedia(recipientId, action.media, conversation.id, action.marker);
     state = { ...state, sent_count: index + 1,
       status: index + 1 === plan.actions.length ? 'introduced' : 'sending' };

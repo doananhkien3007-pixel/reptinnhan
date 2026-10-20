@@ -75,7 +75,11 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const payload = JSON.parse(init.body);
       if (payload.sender_action) return json({ recipient_id: 'customer' });
       await new Promise((resolve) => setTimeout(resolve, 5));
-      if (failAttachmentOnce && payload.message?.attachment?.payload?.attachment_id === failAttachmentOnce) {
+      const knownImages = [product, ...extraProducts].flatMap(item => item.images || []);
+      const albumAttachmentIds = (payload.message?.attachments || []).map(attachment =>
+        knownImages.find(image => image.image_url === attachment.payload?.url)?.facebook_attachment_id);
+      if (failAttachmentOnce && (payload.message?.attachment?.payload?.attachment_id === failAttachmentOnce ||
+          albumAttachmentIds.includes(failAttachmentOnce))) {
         failAttachmentOnce = null;
         return json({ error: 'temporary image error' }, 500);
       }
@@ -236,14 +240,22 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
     settings.set('auto_reply_enabled', { key: 'auto_reply_enabled', value: { enabled: true } });
     await run();
   });
-  const messageValues = () => sentToMessenger.map(item => item.message.text || item.message.attachment.payload.attachment_id);
+  const messageValues = () => sentToMessenger.flatMap(item => {
+    if (item.message.text) return [item.message.text];
+    if (item.message.attachments) {
+      const knownImages = [product, ...extraProducts].flatMap(entry => entry.images || []);
+      return item.message.attachments.map(attachment => knownImages.find(image =>
+        image.image_url === attachment.payload?.url)?.facebook_attachment_id || attachment.payload?.url);
+    }
+    return [item.message.attachment.payload.attachment_id];
+  });
   const introductionValues = p => [
     ...p.images.filter(item => item.media_type !== 'video').sort((a,b) => Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)) || (a.sort_order || 0)-(b.sort_order || 0)).map(item => item.facebook_attachment_id).slice(0,MAX_INTRODUCTION_IMAGES),
     ...p.images.filter(item => item.media_type === 'video').sort((a,b) => (a.sort_order || 0)-(b.sort_order || 0)).slice(0,1).map(item => item.facebook_attachment_id),
     ...getPromotionMessages(p), SIZE_QUESTION
   ];
   const adProduct = { ...product, id: 13, sku: 'VAY-13', name: 'Váy hồng tím', price: 450000, sale_price: 279000, shipping_policy: 'Freeship',
-    images: [1,2,3,4].map(id => ({facebook_attachment_id:`new-image-${id}`,sort_order:id})) };
+    images: [1,2,3,4].map(id => ({image_url:`https://example.com/new-image-${id}.jpg`,facebook_attachment_id:`new-image-${id}`,sort_order:id})) };
   try {
     await scenario('chỉ gửi ảnh, video nếu có, giá và xin số đo; không gọi AI hay tự tạo đơn', async () => {
       process.env.MESSENGER_MODE = 'contextual_ai'; process.env.AUTO_ORDERS_ENABLED = 'true';
@@ -259,8 +271,9 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:1000});
       assert.deepEqual(messageValues(),[...mango.images.map(item=>item.facebook_attachment_id),...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION]);
       assert.equal(settings.get('product_intro:customer:13').value.status,'introduced');
+      const sentCount = sentToMessenger.length;
       await deliver('Xin giá',{referral:{ad_id:'52590312182503'},timestamp:3600000});
-      assert.equal(sentToMessenger.length,introductionValues(mango).length);
+      assert.equal(sentToMessenger.length,sentCount);
     });
     await scenario('Ads 52589265758103 của mẫu Mango 12 dùng cùng lời ưu đãi', async () => {
       const mango={...product,sku:'MANGO-HQ-279'};
@@ -278,6 +291,21 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       await deliver('Có size 75 ký không',{referral:{ad_id:'52592809031703'},timestamp:1000});
       assert.deepEqual(messageValues(),introductionValues(mango));
       assert.equal(settings.get('product_intro:customer:13').value.status,'introduced');
+    });
+    await scenario('nhiều ảnh được gửi trong một tin album Messenger thay vì từng tin riêng', async () => {
+      const mango={...adProduct,sku:'MANGO-HQ-HOA-7MAU-279'};
+      extraProducts=[mango]; adMappings.set('52592809031703',13);
+      await deliver('Xin tư vấn',{referral:{ad_id:'52592809031703'},timestamp:1000});
+      const album = sentToMessenger.find(item => Array.isArray(item.message?.attachments));
+      assert.ok(album);
+      assert.equal(album.message.attachments.length,4);
+      assert.deepEqual(album.message.attachments.map(item => item.payload.url),mango.images.map(item=>item.image_url));
+      assert.equal(sentToMessenger.filter(item => item.message?.attachment?.type === 'image').length,0);
+      assert.equal(sentToMessenger.length,3);
+      assert.deepEqual(storedMessages.filter(item => item.direction==='outbound').map(item=>item.text),[
+        ...mango.images.map((image)=>`[Ảnh sản phẩm 13:${image.facebook_attachment_id}]`),
+        ...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION
+      ]);
     });
     await scenario('preview nhớ tin báo giá Mango, không gửi lại giá hoặc ảnh', async () => {
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
@@ -348,7 +376,7 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       const event={text:'Xem mẫu',mid:'receipt-progress'};
       await deliver(event,{},503);
       assert.equal(settings.get('product_intro:customer:7').value.status,'sending');
-      assert.equal(settings.get('product_intro:customer:7').value.sent_count,1);
+      assert.equal(settings.get('product_intro:customer:7').value.sent_count,0);
       await deliver(event);
       assert.equal(settings.get('product_intro:customer:7').value.status,'introduced');
       assert.deepEqual(messageValues(),introductionValues(product));
@@ -439,14 +467,14 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
     await scenario('retry phần ảnh lỗi chỉ gửi phần còn thiếu', async () => {
       failAttachmentOnce = 'secondary-attachment';
       const event={text:'xem mẫu',mid:'retry-introduction'};
-      await deliver(event,{},503); assert.deepEqual(messageValues(),['primary-attachment']);
+      await deliver(event,{},503); assert.deepEqual(messageValues(),[]);
       await deliver(event); await deliver(event);
       assert.deepEqual(messageValues(), introductionValues(product)); assert.equal(aiRequests.length,0);
       assert.equal(storedMessages.filter(item => item.direction === 'inbound').length,1);
     });
     await scenario('retry báo giá lỗi không gửi lại ảnh', async () => {
       failTextOnce = true; const event={text:'xem mẫu',mid:'retry-price'};
-      await deliver(event,{},503); assert.equal(sentToMessenger.length,4);
+      await deliver(event,{},503); assert.equal(sentToMessenger.length,2);
       await deliver(event); await deliver(event);
       assert.deepEqual(messageValues(),introductionValues(product));
     });
