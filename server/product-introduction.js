@@ -1,7 +1,8 @@
-export const PROMOTION_MESSAGE = '🌷 Dạ mẫu này hôm nay bên em đang giảm 40% còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰';
+export const PROMOTION_MESSAGE = '🌷 Dạ mẫu này hôm nay bên em đang ưu đãi còn 249K + miễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([PROMOTION_MESSAGE]);
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
+  '🌷 Dạ mẫu này hôm nay bên em đang giảm 40% còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰',
   '🌷 Dạ mẫu này hôm nay bên em đang giảm còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰',
   '🌷 Dạ mẫu này hôm nay bên em đang giảm còn 279K + miễn phí vận chuyển chị nha.\nChất vải là lụa Mango Hàn Quốc, mềm mịn, thoáng mát và nhẹ nhàng, mặc lên rất thoải mái chị nha 🥰',
   '🌷 Dạ mẫu này hôm nay bên em đang giảm còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc, mềm mịn, mặc mát và nhẹ người ạ.',
