@@ -1,11 +1,16 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 // https://developers.facebook.com/docs/messenger-platform/send-messages/sender-actions/
-export async function withTypingDelay(recipientId, text, send, { wait = sleep } = {}) {
+export async function withTypingDelay(recipientId, _text, send, { wait = sleep } = {}) {
   const configured = process.env.MESSENGER_TYPING_DELAY_MS;
   const delay = configured !== undefined && configured.trim() !== '' && Number.isFinite(Number(configured))
     ? Math.max(0, Math.min(5000, Number(configured)))
-    : Math.min(3000, Math.max(1000, 800 + String(text).length * 10));
+    : 0;
+  // Reply immediately by default. Besides the artificial pause, each typing
+  // action is another Graph API round trip and can add up to two seconds when
+  // Meta is slow. Shops that prefer the typing effect can opt back in with
+  // MESSENGER_TYPING_DELAY_MS.
+  if (!delay) return send();
   const action = async (senderAction) => {
     try {
       const version = process.env.GRAPH_API_VERSION || 'v26.0';

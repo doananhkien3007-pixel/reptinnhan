@@ -46,6 +46,8 @@ API: `POST /api/webhook?action=reset_introduction`, header `Authorization: Beare
 
 Giữ `PAGE_ACCESS_TOKEN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` và cấu hình xác minh webhook hiện có. Không cần migration hoặc Serverless Function mới: khóa khách, trạng thái khách + sản phẩm và thời điểm referral dùng bảng `app_settings` sẵn có.
 
+Tin nhắn được gửi ngay theo mặc định, không chờ giả lập đang gõ và không nghỉ thêm giữa các phần của bộ giới thiệu. Nếu muốn bật lại hiệu ứng này, đặt `MESSENGER_TYPING_DELAY_MS` hoặc `MESSENGER_SEQUENCE_DELAY_MS` thành số mili giây lớn hơn `0` (tối đa `5000`).
+
 Sự kiện được khóa theo khách và chống trùng theo Facebook message ID. Lỗi đọc/lưu dữ liệu hoặc gửi tin trả HTTP 503 để Meta thử lại. Retry tiếp các phần chưa gửi, không tiếp tục kế hoạch hội thoại AI cũ. Vẫn có khả năng gửi lặp nếu Facebook đã nhận tin nhưng tiến trình dừng trước khi lưu dấu gửi thành công; không bảo đảm exactly-once.
 
 Chạy `npm test` để kiểm tra giới thiệu, chọn Ads mới, referral đến muộn, Ads chưa mapping, trạng thái theo khách + sản phẩm, quick reply sau nhiều giờ, Human reset, retry, tin trùng, tắt bot và preview. Các kiểm thử webhook dùng API mô phỏng, không gửi tin cho khách thật.

@@ -321,15 +321,11 @@ async function sendMessengerImageAlbum(recipientId, items, conversationId) {
   addTaskLog('Messenger', `Đã gửi album ${items.length} ảnh cho khách ${recipientId}`);
 }
 
-function randomDelay(min, max) {
-  return Math.floor(min + Math.random() * (max - min + 1));
-}
-
-async function waitBetweenReplies(min = 800, max = 1800) {
-  const configured = Number(process.env.MESSENGER_SEQUENCE_DELAY_MS);
-  const delay = Number.isFinite(configured)
-    ? Math.max(0, Math.min(5000, configured))
-    : randomDelay(min, max);
+async function waitBetweenReplies() {
+  const configured = process.env.MESSENGER_SEQUENCE_DELAY_MS;
+  const delay = configured !== undefined && configured.trim() !== '' && Number.isFinite(Number(configured))
+    ? Math.max(0, Math.min(5000, Number(configured)))
+    : 0;
   if (delay) await sleep(delay);
 }
 
@@ -368,10 +364,10 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     const action = plan.actions[index];
     const previousAction = plan.actions[index - 1];
     // Send adjacent images immediately so Messenger can group them visually as
-    // one album. Keep the human-like pause before video/text transitions.
+    // one album. An optional configured pause only applies before video/text transitions.
     if (index > 0 && !(previousAction?.type === 'media' && action.type === 'media' &&
         previousAction.media?.media_type !== 'video' && action.media?.media_type !== 'video')) {
-      await waitBetweenReplies(500, 1000);
+      await waitBetweenReplies();
     }
     if (action.type === 'text') await sendMessengerMessage(recipientId, action.text, conversation.id);
     else if (action.type === 'image_album') await sendMessengerImageAlbum(recipientId, action.items, conversation.id);
