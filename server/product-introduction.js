@@ -1,5 +1,6 @@
 export const PROMOTION_MESSAGE = '🌷 Dạ mẫu này hôm nay bên em đang ưu đãi còn 249K + miễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([PROMOTION_MESSAGE]);
+export const TH_VAY_PROMOTION_MESSAGE = '🌷 Dạ bên em đang có ưu đãi đồng giá chỉ 249k và 279k + miễn phí ship từ 1 đầm\n\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, che khuyết điểm tốt và không bị mất phom khi giặt ạ 🥰';
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
   '🌷 Dạ mẫu này hôm nay bên em đang giảm 40% còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰',
@@ -12,21 +13,24 @@ const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
   'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.'
 ]);
 export const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ.🥰';
+export const TH_VAY_SIZE_QUESTION = 'Chị thích mẫu nào ạ? Chị cho em xin chiều cao + cân nặng, em tư vấn mẫu và chọn size vừa người cho chị nha ❤️';
 export const MAX_INTRODUCTION_IMAGES = 7;
 const MANGO_PROMOTION_SKUS = new Set([
   'MANGO-HQ-279',
   'MANGO-HQ-HONG-TIM-279',
   'MANGO-HQ-HOA-7MAU-279'
 ]);
+const TH_VAY_PROMOTION_SKU = 'TH-VAY-20261029';
 
 export function shouldIntroduceBeforeHandoff(product) {
-  return MANGO_PROMOTION_SKUS.has(product?.sku);
+  return MANGO_PROMOTION_SKUS.has(product?.sku) || product?.sku === TH_VAY_PROMOTION_SKU;
 }
 
 export const normalizeText = (value) => String(value || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
 
 export function getPromotionMessage(product) {
+  if (product?.sku === TH_VAY_PROMOTION_SKU) return TH_VAY_PROMOTION_MESSAGE;
   if (shouldIntroduceBeforeHandoff(product)) return PROMOTION_MESSAGE;
   const price = Number(product.price);
   const salePrice = Number(product.sale_price);
@@ -38,7 +42,8 @@ export function getPromotionMessage(product) {
 }
 
 export function getPromotionMessages(product) {
-  return shouldIntroduceBeforeHandoff(product) ? [...MANGO_PROMOTION_MESSAGES] : [getPromotionMessage(product)];
+  if (MANGO_PROMOTION_SKUS.has(product?.sku)) return [...MANGO_PROMOTION_MESSAGES];
+  return [getPromotionMessage(product)];
 }
 
 // Only outbound shop messages count as completed introduction steps.
@@ -106,7 +111,9 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
     })).filter(({ marker, legacyMarker }) => !texts.includes(marker) && !(allowLegacy && texts.includes(legacyMarker))),
     messages: [
       ...(legacyPromotionSent ? [] : promotionMessages.filter(message => !sentPromotionMessages.has(message))),
-      questions.length === 2 ? SIZE_QUESTION : questions.length ? `Dạ chị cho em xin ${questions[0]}, em tư vấn size cho mình ạ.` : null
+      questions.length === 2
+        ? product?.sku === TH_VAY_PROMOTION_SKU ? TH_VAY_SIZE_QUESTION : SIZE_QUESTION
+        : questions.length ? `Dạ chị cho em xin ${questions[0]}, em tư vấn size cho mình ạ.` : null
     ].filter(Boolean)
   };
 }

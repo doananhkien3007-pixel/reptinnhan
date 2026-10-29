@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
-import { planIntroduction, SIZE_QUESTION, MAX_INTRODUCTION_IMAGES, getPromotionMessage, getPromotionMessages, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
+import { planIntroduction, SIZE_QUESTION, TH_VAY_SIZE_QUESTION, MAX_INTRODUCTION_IMAGES, getPromotionMessage, getPromotionMessages, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, TH_VAY_PROMOTION_MESSAGE, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
 
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 
@@ -66,6 +66,19 @@ test('các SKU Mango dùng chung hai bong bóng tư vấn đã cấu hình', () 
   assert.equal(shouldIntroduceBeforeHandoff({ ...product, sku: 'VAY-THUONG' }), false);
   assert.equal(MANGO_PROMOTION_MESSAGES.length, 1);
   assert.equal(PROMOTION_MESSAGE.split('\n').length, 2);
+});
+
+test('TH váy báo hai mức ưu đãi rồi xin chiều cao và cân nặng', () => {
+  const thVay = { ...product, id: 15, sku: 'TH-VAY-20261029', name: 'TH váy' };
+  assert.equal(TH_VAY_PROMOTION_MESSAGE, '🌷 Dạ bên em đang có ưu đãi đồng giá chỉ 249k và 279k + miễn phí ship từ 1 đầm\n\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, che khuyết điểm tốt và không bị mất phom khi giặt ạ 🥰');
+  assert.equal(TH_VAY_SIZE_QUESTION, 'Chị thích mẫu nào ạ? Chị cho em xin chiều cao + cân nặng, em tư vấn mẫu và chọn size vừa người cho chị nha ❤️');
+  assert.equal(getPromotionMessage(thVay), TH_VAY_PROMOTION_MESSAGE);
+  assert.deepEqual(getPromotionMessages(thVay), [TH_VAY_PROMOTION_MESSAGE]);
+  assert.equal(shouldIntroduceBeforeHandoff(thVay), true);
+  assert.deepEqual(planIntroduction(thVay, []).messages, [TH_VAY_PROMOTION_MESSAGE, TH_VAY_SIZE_QUESTION]);
+  assert.deepEqual(planIntroduction(thVay, [
+    '[Ảnh sản phẩm 15:image-1]', TH_VAY_PROMOTION_MESSAGE, TH_VAY_SIZE_QUESTION
+  ]), { images: [], videos: [], messages: [] });
 });
 
 test('nội dung Mango ngay trước lần rút gọn vẫn được nhận diện để không gửi lặp', () => {
