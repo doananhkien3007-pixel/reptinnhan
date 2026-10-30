@@ -15,6 +15,7 @@ const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
 export const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ.🥰';
 export const TH_VAY_SIZE_QUESTION = 'Chị thích mẫu nào ạ? Chị cho em xin chiều cao + cân nặng, em tư vấn mẫu và chọn size vừa người cho chị nha ❤️';
 export const MAX_INTRODUCTION_IMAGES = 7;
+export const MAX_TH_VAY_INTRODUCTION_IMAGES = 30;
 const MANGO_PROMOTION_SKUS = new Set([
   'MANGO-HQ-279',
   'MANGO-HQ-HONG-TIM-279',
@@ -83,10 +84,13 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
   if (promotionComplete && productQuestions.some(text => /can nang/.test(normalizeText(text)) && /chieu cao/.test(normalizeText(text)))) {
     return { images: [], videos: [], messages: [] };
   }
+  const imageLimit = product?.sku === TH_VAY_PROMOTION_SKU
+    ? MAX_TH_VAY_INTRODUCTION_IMAGES
+    : MAX_INTRODUCTION_IMAGES;
   const images = [...new Map((product.images || [])
     .filter((item) => item.media_type !== 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)) || Number(a.sort_order || 0) - Number(b.sort_order || 0))
-    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, MAX_INTRODUCTION_IMAGES);
+    .map((item) => [String(item.facebook_attachment_id).trim(), item])).values()].slice(0, imageLimit);
   const videos = [...new Map((product.images || [])
     .filter((item) => item.media_type === 'video' && String(item.facebook_attachment_id || '').trim())
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))

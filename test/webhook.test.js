@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { MAX_INTRODUCTION_IMAGES, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
+import { MAX_INTRODUCTION_IMAGES, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, SIZE_QUESTION, TH_VAY_PROMOTION_MESSAGE, TH_VAY_SIZE_QUESTION, getPromotionMessages } from '../server/product-introduction.js';
 
 test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads mới nhất', async (t) => {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -318,6 +318,26 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
         ...mango.images.map((image)=>`[Ảnh sản phẩm 13:${image.facebook_attachment_id}]`),
         ...MANGO_PROMOTION_MESSAGES,SIZE_QUESTION
       ]);
+    });
+    await scenario('TH váy gửi đủ 23 ảnh thành bốn album không quá sáu ảnh', async () => {
+      const images=Array.from({length:23},(_,index)=>({
+        image_url:`https://example.com/th-vay-${index+1}.jpg`,
+        facebook_attachment_id:`th-vay-${index+1}`,
+        sort_order:index+1
+      }));
+      const thVay={...adProduct,id:15,sku:'TH-VAY-20261029',name:'TH váy',images};
+      extraProducts=[thVay]; adMappings.set('th-vay-ad',15);
+      await deliver('Xem các mẫu váy',{referral:{ad_id:'th-vay-ad'},timestamp:1000});
+      const albums=sentToMessenger.filter(item=>Array.isArray(item.message?.attachments));
+      assert.deepEqual(albums.map(item=>item.message.attachments.length),[6,6,6,5]);
+      assert.deepEqual(albums.flatMap(item=>item.message.attachments.map(attachment=>attachment.payload.url)),
+        images.map(image=>image.image_url));
+      assert.deepEqual(messageValues(),[
+        ...images.map(image=>image.facebook_attachment_id),
+        TH_VAY_PROMOTION_MESSAGE,TH_VAY_SIZE_QUESTION
+      ]);
+      assert.equal(settings.get('product_intro:customer:15').value.status,'introduced');
+      assert.equal(settings.get('product_intro:customer:15').value.actions.length,6);
     });
     await scenario('preview nhớ tin báo giá Mango, không gửi lại giá hoặc ảnh', async () => {
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};

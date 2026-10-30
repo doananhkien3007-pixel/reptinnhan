@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
-import { planIntroduction, SIZE_QUESTION, TH_VAY_SIZE_QUESTION, MAX_INTRODUCTION_IMAGES, getPromotionMessage, getPromotionMessages, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, TH_VAY_PROMOTION_MESSAGE, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
+import { planIntroduction, SIZE_QUESTION, TH_VAY_SIZE_QUESTION, MAX_INTRODUCTION_IMAGES, MAX_TH_VAY_INTRODUCTION_IMAGES, getPromotionMessage, getPromotionMessages, PROMOTION_MESSAGE, MANGO_PROMOTION_MESSAGES, TH_VAY_PROMOTION_MESSAGE, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
 
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 
@@ -79,6 +79,25 @@ test('TH váy báo hai mức ưu đãi rồi xin chiều cao và cân nặng', (
   assert.deepEqual(planIntroduction(thVay, [
     '[Ảnh sản phẩm 15:image-1]', TH_VAY_PROMOTION_MESSAGE, TH_VAY_SIZE_QUESTION
   ]), { images: [], videos: [], messages: [] });
+});
+
+test('TH váy lấy đủ toàn bộ 23 ảnh thay vì giới hạn bảy ảnh', () => {
+  const images = Array.from({ length: 23 }, (_, index) => ({
+    facebook_attachment_id: `th-vay-image-${index + 1}`,
+    image_url: `https://example.com/th-vay-${index + 1}.jpg`,
+    sort_order: index + 1
+  }));
+  const plan = planIntroduction({
+    ...product,
+    id: 15,
+    sku: 'TH-VAY-20261029',
+    name: 'TH váy',
+    images
+  }, []);
+  assert.equal(MAX_TH_VAY_INTRODUCTION_IMAGES, 30);
+  assert.equal(plan.images.length, 23);
+  assert.deepEqual(plan.images.map(item => item.image.facebook_attachment_id),
+    images.map(item => item.facebook_attachment_id));
 });
 
 test('nội dung Mango ngay trước lần rút gọn vẫn được nhận diện để không gửi lặp', () => {

@@ -24,6 +24,8 @@ import {
   syncLatestConversationAd
 } from '../server/products.js';
 
+const MAX_MESSENGER_ALBUM_IMAGES = 6;
+
 // Biến toàn cục lưu trữ tin nhắn tạm thời (sẽ mất khi Vercel restart)
 if (!global.messages) {
   global.messages = [];
@@ -295,8 +297,8 @@ async function sendMessengerImageAlbum(recipientId, items, conversationId) {
   if (!pageAccessToken || !recipientId) {
     throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
   }
-  if (!Array.isArray(items) || items.length < 2 || items.length > 30) {
-    throw new Error('Album Messenger phải có từ 2 đến 30 ảnh.');
+  if (!Array.isArray(items) || items.length < 2 || items.length > MAX_MESSENGER_ALBUM_IMAGES) {
+    throw new Error(`Album Messenger phải có từ 2 đến ${MAX_MESSENGER_ALBUM_IMAGES} ảnh.`);
   }
   const attachments = items.map(({ image }) => {
     const imageUrl = String(image?.image_url || '').trim();
@@ -329,6 +331,19 @@ async function waitBetweenReplies() {
   if (delay) await sleep(delay);
 }
 
+function buildImageActions(images, canSendAlbum) {
+  if (!canSendAlbum) {
+    return images.map(({ image, marker }) => ({ type: 'media', media: image, marker }));
+  }
+  const actions = [];
+  for (let index = 0; index < images.length; index += MAX_MESSENGER_ALBUM_IMAGES) {
+    const items = images.slice(index, index + MAX_MESSENGER_ALBUM_IMAGES);
+    if (items.length === 1) actions.push({ type: 'media', media: items[0].image, marker: items[0].marker });
+    else actions.push({ type: 'image_album', items });
+  }
+  return actions;
+}
+
 async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context, state) {
   await trace.nodeStarted('ai_agent', { mode: 'introduction_only', history_count: context.history.length });
   if (!state || state.status === 'pending') {
@@ -338,9 +353,7 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     const canSendAlbum = introduction.images.length > 1 && introduction.images.every(({ image }) =>
       /^https:\/\//i.test(String(image?.image_url || '').trim()));
     const actions = [
-      ...(canSendAlbum
-        ? [{ type: 'image_album', items: introduction.images }]
-        : introduction.images.map(({ image, marker }) => ({ type: 'media', media: image, marker }))),
+      ...buildImageActions(introduction.images, canSendAlbum),
       ...introduction.videos.map(({ video, marker }) => ({ type: 'media', media: video, marker })),
       ...introduction.messages.map((text) => ({ type: 'text', text }))
     ];
