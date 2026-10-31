@@ -1,6 +1,9 @@
 export const PROMOTION_MESSAGE = '🌷 Dạ mẫu này hôm nay bên em đang ưu đãi còn 249K + miễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰';
 export const MANGO_PROMOTION_MESSAGES = Object.freeze([PROMOTION_MESSAGE]);
-export const TH_VAY_PROMOTION_MESSAGE = '🌷 Dạ bên em đang có ưu đãi đồng giá chỉ 249k và 279k + miễn phí ship từ 1 đầm\n\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, che khuyết điểm tốt và không bị mất phom khi giặt ạ 🥰';
+export const TH_VAY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này đang ưu đãi còn 280K (giá gốc 450K).\nMiễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn, thoáng mát.\nChe khuyết điểm tốt và giữ phom sau khi giặt ạ 🥰';
+const PREVIOUS_TH_VAY_PROMOTION_MESSAGES = Object.freeze([
+  '🌷 Dạ bên em đang có ưu đãi đồng giá chỉ 249k và 279k + miễn phí ship từ 1 đầm\n\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, che khuyết điểm tốt và không bị mất phom khi giặt ạ 🥰'
+]);
 const LEGACY_PROMOTION_MESSAGE = '🌷 Dạ mẫu này bên em đang sale còn 279K, freeship cho chị luôn nha. Mai bên em về lại giá 450K ạ 🥰\n\nVải lụa Mango Hàn Quốc mềm mịn, mặc mát và nhẹ người, lên form cũng rất đẹp chị ạ.';
 const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
   '🌷 Dạ mẫu này hôm nay bên em đang giảm 40% còn 279K + miễn phí vận chuyển chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn lắm chị, mặc thoáng mát, nhẹ người, lên dáng cũng rất đẹp ạ 🥰',
@@ -13,7 +16,7 @@ const PREVIOUS_MANGO_PROMOTION_MESSAGES = Object.freeze([
   'Dạ mẫu này bên em đang giảm 20% còn 279K, miễn phí ship cho chị luôn ạ 🌷 Chị được kiểm tra hàng và mặc thử trước khi thanh toán, vừa ý mình mới nhận chị nha.'
 ]);
 export const SIZE_QUESTION = 'Chị cho em xin chiều cao + cân nặng, em chọn size chuẩn cho chị ạ.🥰';
-export const TH_VAY_SIZE_QUESTION = 'Chị thích mẫu nào ạ? Chị cho em xin chiều cao + cân nặng, em tư vấn mẫu và chọn size vừa người cho chị nha ❤️';
+export const TH_VAY_SIZE_QUESTION = '⏰ Ưu đãi 40% chỉ áp dụng trong hôm nay chị nha.\nChị cho em xin chiều cao + cân nặng.\nEm chọn size vừa đẹp cho mình ạ 🥰';
 export const MAX_INTRODUCTION_IMAGES = 7;
 export const MAX_TH_VAY_INTRODUCTION_IMAGES = 30;
 const MANGO_PROMOTION_SKUS = new Set([
@@ -59,6 +62,8 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
   for (const text of texts) {
     const previousPromotionIndex = PREVIOUS_MANGO_PROMOTION_MESSAGES.indexOf(text);
     const isPreviousMangoPromotion = MANGO_PROMOTION_SKUS.has(product.sku) && previousPromotionIndex >= 0;
+    const isPreviousThVayPromotion = product?.sku === TH_VAY_PROMOTION_SKU &&
+      PREVIOUS_TH_VAY_PROMOTION_MESSAGES.includes(text);
     // Historical quotes can be identical across products. The scoped media
     // marker identifies which product the following nameless quote belongs to.
     const mediaProductId = text.match(/^\[(?:Ảnh|Video) sản phẩm (\d+):[^\]]+\]$/)?.[1];
@@ -74,6 +79,7 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
       if (isPreviousMangoPromotion) {
         sentPromotionMessages.add(PROMOTION_MESSAGE);
       }
+      if (isPreviousThVayPromotion) sentPromotionMessages.add(TH_VAY_PROMOTION_MESSAGE);
       if (legacyPromotionQuotes.has(text)) legacyPromotionSent = true;
     }
     if ((currentProduct || allowLegacy) && /can nang|chieu cao/.test(normalizeText(text)) &&
