@@ -20,9 +20,11 @@ import {
   classifyEcho,
   customerDeclined,
   customerHasMeasurements,
+  eventIdentity,
   eventTimestamp,
   finishBotOutbound,
   prepareBotOutbound,
+  recordCustomerActivity,
   readRemarketingStatus,
   scheduleRemarketing,
   updateRemarketingConfig
@@ -444,6 +446,7 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
       introVersion: state.version,
       sourceAdId: conversation.ad_id || null,
       lastCustomerInteractionAt: remarketingContext.interactionAt,
+      originEventId: remarketingContext.eventId,
       hasMeasurements
     });
     await checkpointTurn(turn, { remarketing_scheduled: scheduled?.started || scheduled?.reason === 'already_exists' });
@@ -477,11 +480,14 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled, ent
   if ((channel === 'standby' || !receivedText) && !adId) return;
 
   const interactionAt = eventTimestamp(webhookEvent);
+  const interactionEventId = eventIdentity(webhookEvent);
   if (receivedText) {
     const hasMeasurements = customerHasMeasurements([], receivedText);
-    await cancelRemarketing({
+    await recordCustomerActivity({
       pageId,
       customerPsid: senderPsid,
+      interactionAt,
+      eventId: interactionEventId,
       reason: channel === 'standby' ? 'standby_handover'
         : customerDeclined(receivedText) ? 'customer_declined'
           : hasMeasurements ? 'measurements_received' : 'customer_message',
@@ -560,6 +566,7 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled, ent
         introVersion: introductionState.version,
         sourceAdId: conversation.ad_id || null,
         lastCustomerInteractionAt: interactionAt,
+        originEventId: interactionEventId,
         hasMeasurements: customerHasMeasurements(context.history, receivedText)
       });
       await checkpointTurn(turn, { remarketing_scheduled: scheduled?.started || scheduled?.reason === 'already_exists' });
@@ -571,7 +578,8 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled, ent
       const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
       await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context, introductionState, {
         pageId,
-        interactionAt
+        interactionAt,
+        eventId: interactionEventId
       });
     } else {
       for (const [previous, node] of [['check_auto_reply', 'ai_agent'], ['ai_agent', 'business_logic'], ['business_logic', 'send_messenger'], ['send_messenger', 'completed']]) {

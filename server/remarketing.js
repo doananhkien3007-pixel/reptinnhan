@@ -13,6 +13,10 @@ export function eventTimestamp(event) {
   return Number.isNaN(parsed.valueOf()) ? new Date().toISOString() : parsed.toISOString();
 }
 
+export function eventIdentity(event) {
+  return String(event?.message?.mid || event?.postback?.mid || `${event?.timestamp || 'unknown'}:${event?.postback?.payload || event?.postback?.title || 'event'}`);
+}
+
 export function customerDeclined(text) {
   const value = ` ${normalizeText(text).replace(/[^a-z0-9]+/g, ' ')} `;
   return [
@@ -38,10 +42,26 @@ export async function cancelRemarketing({ pageId, customerPsid, reason, hasMeasu
   return Number(data || 0);
 }
 
+export async function recordCustomerActivity({
+  pageId, customerPsid, interactionAt, eventId, reason, hasMeasurements = false
+}) {
+  if (!remarketingAvailable() || !pageId || !customerPsid) return 0;
+  const { data, error } = await requireSupabase().rpc('remarketing_record_customer_activity', {
+    p_page_id: pageId,
+    p_customer_psid: customerPsid,
+    p_interaction_at: interactionAt,
+    p_event_id: eventId,
+    p_reason: reason,
+    p_has_measurements: hasMeasurements
+  });
+  if (error) throw new Error(`Không thể ghi tương tác remarketing: ${error.message}`);
+  return Number(data || 0);
+}
+
 export async function scheduleRemarketing({
   pageId, conversationId, customerPsid, productId, introVersion,
   sourceAdId = null, lastCustomerInteractionAt, introCompletedAt = new Date().toISOString(),
-  hasMeasurements = false
+  originEventId, hasMeasurements = false
 }) {
   if (!remarketingAvailable()) return { started: false, reason: 'feature_unavailable' };
   const { data, error } = await requireSupabase().rpc('remarketing_start_cycle', {
@@ -52,6 +72,7 @@ export async function scheduleRemarketing({
     p_intro_version: String(introVersion),
     p_last_customer_interaction_at: lastCustomerInteractionAt,
     p_intro_completed_at: introCompletedAt,
+    p_origin_event_id: originEventId,
     p_has_measurements: hasMeasurements,
     p_source_ad_id: sourceAdId
   });
