@@ -47,6 +47,18 @@
     <input id="introduction-admin-token" type="password" autocomplete="off" placeholder="Nhập mã để reset mẫu đang tư vấn">
     <button id="reset-introduction" class="btn" type="button">Reset mẫu đang tư vấn cho khách đã chọn</button>
     <p id="introduction-reset-status" class="preview-note" role="status">Reset chỉ mở lại trạng thái; không gửi tin ngay.</p>
+    <section class="ai-preview" aria-labelledby="remarketing-title">
+      <h3 id="remarketing-title">Nhắc lại Messenger</h3>
+      <p class="dialog-description">Chỉ áp dụng chu kỳ giới thiệu mới của sản phẩm “5 mẫu”. Mặc định gửi tối đa một lần sau 2 giờ; không dùng Human Agent và không gửi ngoài cửa sổ hợp lệ.</p>
+      <label class="field-label" for="remarketing-max-steps">Số lần nhắc tối đa</label>
+      <select id="remarketing-max-steps"><option value="1">1 lần (khuyến nghị)</option><option value="2">2 lần (lần 2 sau 18 giờ)</option></select>
+      <div class="dialog-actions">
+        <button id="remarketing-dry-run" class="btn" type="button">Bật dry-run</button>
+        <button id="remarketing-enable" class="btn btn-primary" type="button">Bật gửi thật</button>
+        <button id="remarketing-disable" class="btn" type="button">Tắt</button>
+      </div>
+      <p id="remarketing-status" class="preview-note" role="status">Đang tải trạng thái…</p>
+    </section>
     <label class="field-label" for="system-prompt">Hướng dẫn cho trợ lý</label><textarea id="system-prompt" placeholder="Ví dụ: Tư vấn thân thiện, hỏi nhu cầu của khách trước khi giới thiệu sản phẩm…"></textarea>
     <div class="dialog-actions"><span id="prompt-status" role="status"></span><button id="save-prompt" class="btn btn-primary" type="button">Lưu hướng dẫn</button></div>
     <div class="connection-check"><div><strong>Kết nối AI</strong><p>Kiểm tra trợ lý có sẵn sàng phản hồi hay không.</p></div><button id="test-openai" class="btn" type="button">Kiểm tra kết nối</button></div><p id="openai-status" role="status"></p>

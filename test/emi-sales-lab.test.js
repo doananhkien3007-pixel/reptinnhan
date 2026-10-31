@@ -97,7 +97,7 @@ test('24 fixtures cover required ambiguity, shorthand measurements and transacti
  assert.equal(SEED_CASES.find(c=>c.id==='seed-weight-unit-typo').input.messages[0].text,'58ki');
  assert.equal(SEED_CASES.find(c=>c.id==='seed-exchange-add').input.messages[0].text,'c đổi c này lấy cái xanh hồi nãy nha ngực chật quá với lấy thêm c bông vàng');
  for(const file of readdirSync(new URL('../lab/',import.meta.url)).filter(f=>f.endsWith('.js'))){const code=readFileSync(new URL(`../lab/${file}`,import.meta.url),'utf8');assert.doesNotMatch(code,/from ['"](?:\.\.\/server\/|\.\.\/api\/|@supabase\/)/);assert.doesNotMatch(code,/graph\.facebook\.com|PAGE_ACCESS_TOKEN|SUPABASE_SECRET_KEY|\/me\/messages/);}
- assert.deepEqual(readdirSync(new URL('../api/',import.meta.url)).filter(f=>f.endsWith('.js')).sort(),['facebook-ads.js','lab.js','products.js','webhook.js']);
+ assert.deepEqual(readdirSync(new URL('../api/',import.meta.url)).filter(f=>f.endsWith('.js')).sort(),['facebook-ads.js','lab.js','products.js','remarketing.js','webhook.js']);
 });
 
 test('HTTP end-to-end chat/feedback/replay/customer/import/export and local origin protection',async()=>{

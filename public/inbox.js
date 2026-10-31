@@ -11,6 +11,7 @@ let promptLoaded = false;
 let previewSenderId = null;
 let previewHistory = [];
 let previewVersion = 0;
+let remarketingConfig = null;
 let audioContext = null;
 let pendingMessageSound = false;
 let seenIncomingMessages = null;
@@ -285,6 +286,53 @@ async function loadSystemPrompt() {
   finally { $('save-prompt').disabled = !promptLoaded; $('system-prompt').disabled = !promptLoaded; }
 }
 
+function renderRemarketingStatus() {
+  const status = $('remarketing-status');
+  const controls = [$('remarketing-dry-run'), $('remarketing-enable'), $('remarketing-disable'), $('remarketing-max-steps')];
+  if (!remarketingConfig?.available) {
+    status.textContent = 'Bản triển khai hiện tại chưa cài/bật mô-đun remarketing.';
+    controls.forEach(control => { control.disabled = true; });
+    return;
+  }
+  controls.forEach(control => { control.disabled = false; });
+  $('remarketing-max-steps').value = String(remarketingConfig.max_steps || 1);
+  const mode = !remarketingConfig.enabled ? 'Đang tắt' : remarketingConfig.dry_run ? 'Dry-run · không gửi Messenger' : 'Đang gửi thật';
+  status.textContent = mode + ' · Chờ: ' + Number(remarketingConfig.scheduled_count || 0) +
+    ' · Đang claim: ' + Number(remarketingConfig.claimed_count || 0) +
+    ' · Chưa rõ kết quả: ' + Number(remarketingConfig.uncertain_count || 0);
+}
+
+async function loadRemarketingStatus() {
+  try {
+    remarketingConfig = await api('remarketing_status');
+    renderRemarketingStatus();
+  } catch (error) {
+    $('remarketing-status').textContent = error.message;
+  }
+}
+
+async function saveRemarketingConfig(enabled, dryRun) {
+  const token = $('introduction-admin-token').value.trim();
+  const buttons = [$('remarketing-dry-run'), $('remarketing-enable'), $('remarketing-disable')];
+  buttons.forEach(button => { button.disabled = true; });
+  $('remarketing-status').textContent = 'Đang cập nhật…';
+  try {
+    remarketingConfig = await api('remarketing_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({
+        enabled,
+        dry_run: dryRun,
+        max_steps: Number($('remarketing-max-steps').value) === 2 ? 2 : 1
+      })
+    });
+    renderRemarketingStatus();
+  } catch (error) {
+    $('remarketing-status').textContent = error.message;
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
 $('open-settings').addEventListener('click', () => {
   if (previewSenderId !== selectedId) resetPreview();
   previewSenderId = selectedId;
@@ -292,7 +340,11 @@ $('open-settings').addEventListener('click', () => {
   $('preview-context').textContent = customer ? 'Ngữ cảnh: ' + customerLabel(customer) + ' và lịch sử hội thoại đã lưu.' : 'Thử với dữ liệu sản phẩm. Chọn khách trong hộp thư để thử cùng ngữ cảnh của khách.';
   $('settings-dialog').showModal();
   if (!promptLoaded) loadSystemPrompt();
+  loadRemarketingStatus();
 });
+$('remarketing-dry-run').addEventListener('click', () => saveRemarketingConfig(true, true));
+$('remarketing-enable').addEventListener('click', () => saveRemarketingConfig(true, false));
+$('remarketing-disable').addEventListener('click', () => saveRemarketingConfig(false, true));
 $('preview-reset').addEventListener('click', resetPreview);
 $('preview-reply').addEventListener('click', async () => {
   const result = $('preview-result');

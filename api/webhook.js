@@ -15,6 +15,18 @@ import { getIntroductionFollowup } from '../server/introduction-followup.js';
 import { readIntroductionState, saveIntroductionState } from '../server/product-introduction-state.js';
 import { authorizeOrders } from '../server/orders.js';
 import { acquireWelcomeClaim, releaseWelcomeClaim } from '../server/welcome-claim.js';
+import {
+  cancelRemarketing,
+  classifyEcho,
+  customerDeclined,
+  customerHasMeasurements,
+  eventTimestamp,
+  finishBotOutbound,
+  prepareBotOutbound,
+  readRemarketingStatus,
+  scheduleRemarketing,
+  updateRemarketingConfig
+} from '../server/remarketing.js';
 export const config = { api: { bodyParser: false } };
 import {
   getAllSentTexts,
@@ -238,28 +250,38 @@ async function sendMessengerMessage(recipientId, text, conversationId = null) {
     throw new Error('Chưa cấu hình PAGE_ACCESS_TOKEN hoặc thiếu sender PSID.');
   }
 
-  return withTypingDelay(recipientId, text, async () => {
+  const registration = await prepareBotOutbound({ customerPsid: recipientId, source: 'introduction' });
+  try {
+    return await withTypingDelay(recipientId, text, async () => {
     const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         recipient: { id: recipientId },
-        message: { text }
+        message: { text, ...(registration ? { metadata: registration.metadata } : {}) }
       })
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
+      await finishBotOutbound(registration, { status: 'failed' });
       throw new Error(`Facebook API ${response.status}: ${errorBody}`);
     }
+    const result = await response.json();
+    await finishBotOutbound(registration, { status: 'sent', messageId: result.message_id || null });
     addTaskLog('Messenger', `Đã gửi trả lời cho khách ${recipientId}: "${text.slice(0, 160)}"`);
     if (conversationId) {
       await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text });
     } else {
       await saveMessage(recipientId, 'outbound', text);
     }
-  });
+    return result;
+    });
+  } catch (error) {
+    await finishBotOutbound(registration, { status: 'uncertain' }).catch(() => {});
+    throw error;
+  }
 }
 
 async function sendMessengerMedia(recipientId, media, conversationId, marker) {
@@ -275,17 +297,27 @@ async function sendMessengerMedia(recipientId, media, conversationId, marker) {
     payload: { attachment_id: attachmentId }
   };
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { attachment }
-    })
-  });
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Facebook API gửi ${attachment.type} ${response.status}: ${errorBody}`);
+  const registration = await prepareBotOutbound({ customerPsid: recipientId, source: 'introduction' });
+  let result;
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        message: { attachment, ...(registration ? { metadata: registration.metadata } : {}) }
+      })
+    });
+    if (!response.ok) {
+      const errorBody = await response.text();
+      await finishBotOutbound(registration, { status: 'failed' });
+      throw new Error(`Facebook API gửi ${attachment.type} ${response.status}: ${errorBody}`);
+    }
+    result = await response.json();
+    await finishBotOutbound(registration, { status: 'sent', messageId: result.message_id || null });
+  } catch (error) {
+    await finishBotOutbound(registration, { status: 'uncertain' }).catch(() => {});
+    throw error;
   }
   await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: marker });
   addTaskLog('Messenger', `Đã gửi ${marker} cho khách ${recipientId}`);
@@ -306,17 +338,28 @@ async function sendMessengerImageAlbum(recipientId, items, conversationId) {
     return { type: 'image', payload: { url: imageUrl } };
   });
   const apiUrl = `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
-  await withTypingDelay(recipientId, `Album ${items.length} ảnh sản phẩm`, async () => {
+  const registration = await prepareBotOutbound({ customerPsid: recipientId, source: 'introduction' });
+  try {
+    await withTypingDelay(recipientId, `Album ${items.length} ảnh sản phẩm`, async () => {
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient: { id: recipientId }, message: { attachments } })
+      body: JSON.stringify({ recipient: { id: recipientId }, message: {
+        attachments, ...(registration ? { metadata: registration.metadata } : {})
+      } })
     });
     if (!response.ok) {
       const errorBody = await response.text();
+      await finishBotOutbound(registration, { status: 'failed' });
       throw new Error(`Facebook API gửi album ${response.status}: ${errorBody}`);
     }
+    const result = await response.json();
+    await finishBotOutbound(registration, { status: 'sent', messageId: result.message_id || null });
   });
+  } catch (error) {
+    await finishBotOutbound(registration, { status: 'uncertain' }).catch(() => {});
+    throw error;
+  }
   for (const { marker } of items) {
     await saveConversationMessage({ conversationId, senderId: recipientId, direction: 'outbound', text: marker });
   }
@@ -344,7 +387,7 @@ function buildImageActions(images, canSendAlbum) {
   return actions;
 }
 
-async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context, state) {
+async function replyToCustomer(recipientId, conversation, receivedText, trace, turn, context, state, remarketingContext) {
   await trace.nodeStarted('ai_agent', { mode: 'introduction_only', history_count: context.history.length });
   if (!state || state.status === 'pending') {
     // Import existing customers once. A Human reset deliberately starts fresh.
@@ -391,6 +434,21 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     await saveIntroductionState(recipientId, context.product.id, state);
     await checkpointTurn(turn, { sent_count: index + 1 });
   }
+  if (state.status === 'introduced') {
+    const hasMeasurements = customerHasMeasurements(context.history, receivedText);
+    const scheduled = await scheduleRemarketing({
+      pageId: remarketingContext.pageId,
+      conversationId: conversation.id,
+      customerPsid: recipientId,
+      productId: context.product.id,
+      introVersion: state.version,
+      sourceAdId: conversation.ad_id || null,
+      lastCustomerInteractionAt: remarketingContext.interactionAt,
+      hasMeasurements
+    });
+    await checkpointTurn(turn, { remarketing_scheduled: scheduled?.started || scheduled?.reason === 'already_exists' });
+    if (scheduled?.started) addTaskLog('Remarketing', `Đã lên lịch an toàn cho mẫu ${context.product.id}`);
+  }
   await trace.nodeCompleted('send_messenger', { action_count: turn.value.sent_count || 0 });
   await trace.edgeTransfer('send_messenger', 'completed');
   await trace.nodeStarted('completed');
@@ -398,14 +456,38 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
   await trace.complete({ intent: plan.intent, product_id: context.product?.id || null });
 }
 
-async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
+async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled, entryPageId) {
+  const pageId = String(entryPageId || process.env.FB_PAGE_ID || '').trim();
+  if (webhookEvent.message?.is_echo) {
+    const customerPsid = webhookEvent.recipient?.id || webhookEvent.sender?.id;
+    if (!customerPsid) return;
+    const echo = await classifyEcho(customerPsid, webhookEvent.message);
+    if (!echo.ownBot) {
+      await cancelRemarketing({ pageId, customerPsid, reason: echo.reason || 'external_outbound' });
+      addTaskLog('Remarketing', 'Đã huỷ lịch vì có tin outbound ngoài bot hiện tại');
+    }
+    return;
+  }
   const senderPsid = webhookEvent.sender?.id;
-  if (!senderPsid || webhookEvent.message?.is_echo) return;
+  if (!senderPsid) return;
   const receivedText = webhookEvent.message?.text?.trim()
     || (webhookEvent.message?.attachments?.length ? '[Khách gửi ảnh hoặc tệp]' : null)
     || (webhookEvent.postback ? webhookEvent.postback.title || webhookEvent.postback.payload || '[Khách bấm nút]' : null);
   const { adId, location } = getAdReferral(webhookEvent);
   if ((channel === 'standby' || !receivedText) && !adId) return;
+
+  const interactionAt = eventTimestamp(webhookEvent);
+  if (receivedText) {
+    const hasMeasurements = customerHasMeasurements([], receivedText);
+    await cancelRemarketing({
+      pageId,
+      customerPsid: senderPsid,
+      reason: channel === 'standby' ? 'standby_handover'
+        : customerDeclined(receivedText) ? 'customer_declined'
+          : hasMeasurements ? 'measurements_received' : 'customer_message',
+      hasMeasurements
+    });
+  }
 
   let turn;
   let trace;
@@ -469,12 +551,28 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
     await trace.nodeStarted(stage);
     const reason = alreadyIntroduced ? 'already_introduced' : introductionState?.status === 'human_handoff' ? 'human_handoff'
       : !autoReplyEnabled ? 'auto_reply_disabled' : !context.product ? 'product_not_mapped' : staleTurn ? 'introduction_reset' : null;
+    if (alreadyIntroduced && turn.value.introduction_version === introductionState?.version && !turn.value.remarketing_scheduled) {
+      const scheduled = await scheduleRemarketing({
+        pageId,
+        conversationId: conversation.id,
+        customerPsid: senderPsid,
+        productId: context.product.id,
+        introVersion: introductionState.version,
+        sourceAdId: conversation.ad_id || null,
+        lastCustomerInteractionAt: interactionAt,
+        hasMeasurements: customerHasMeasurements(context.history, receivedText)
+      });
+      await checkpointTurn(turn, { remarketing_scheduled: scheduled?.started || scheduled?.reason === 'already_exists' });
+    }
     await trace.nodeCompleted(stage, { enabled: autoReplyEnabled, reason });
     if (!reason) {
       await trace.edgeTransfer('check_auto_reply', 'ai_agent');
       stage = 'ai_agent';
       const trackedTrace = { ...trace, nodeStarted: async (node, payload) => { stage = node; await trace.nodeStarted(node, payload); } };
-      await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context, introductionState);
+      await replyToCustomer(senderPsid, conversation, receivedText, trackedTrace, turn, context, introductionState, {
+        pageId,
+        interactionAt
+      });
     } else {
       for (const [previous, node] of [['check_auto_reply', 'ai_agent'], ['ai_agent', 'business_logic'], ['business_logic', 'send_messenger'], ['send_messenger', 'completed']]) {
         await trace.edgeTransfer(previous, node, { skipped: true, reason });
@@ -495,7 +593,7 @@ async function processCustomerEvent(webhookEvent, channel, autoReplyEnabled) {
 export default async function handler(req, res) {
   if (req.method === 'POST') {
     try {
-      const managementAction = ['preview_reply', 'toggle_auto_reply', 'set_system_prompt', 'reset_introduction'].includes(req.query.action);
+      const managementAction = ['preview_reply', 'toggle_auto_reply', 'set_system_prompt', 'reset_introduction', 'remarketing_config'].includes(req.query.action);
       // Management actions use the web UI; Meta events use the webhook signature.
       await readWebhookBody(req, Boolean(process.env.FB_APP_SECRET) && !managementAction);
     } catch {
@@ -515,6 +613,14 @@ export default async function handler(req, res) {
     if (action === 'auto_reply_status') {
       try {
         return res.status(200).json({ enabled: await readAutoReplyEnabled() });
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
+    }
+
+    if (action === 'remarketing_status') {
+      try {
+        return res.status(200).json(await readRemarketingStatus());
       } catch (error) {
         return res.status(500).json({ error: error.message });
       }
@@ -596,6 +702,22 @@ export default async function handler(req, res) {
         return res.status(503).json({ error: error.message });
       } finally {
         if (lock) await releaseWelcomeClaim(lock);
+      }
+    }
+
+    if (action === 'remarketing_config') {
+      if (!authorizeOrders(req, res)) return;
+      const maxSteps = Number(req.body?.max_steps) === 2 ? 2 : 1;
+      try {
+        const result = await updateRemarketingConfig({
+          enabled: req.body?.enabled === true,
+          dryRun: req.body?.dry_run !== false,
+          maxSteps
+        });
+        addTaskLog('Remarketing', `Đã cập nhật: ${result.enabled ? (result.dry_run ? 'dry-run' : 'production') : 'tắt'}`);
+        return res.status(200).json(result);
+      } catch (error) {
+        return res.status(503).json({ error: error.message });
       }
     }
 
@@ -694,7 +816,7 @@ export default async function handler(req, res) {
       for (const [channel, events] of [['messaging', entry.messaging || []], ['standby', entry.standby || []]]) {
         for (const event of events) {
           try {
-            await processCustomerEvent(event, channel, autoReplyEnabled);
+            await processCustomerEvent(event, channel, autoReplyEnabled, entry.id);
           } catch (error) {
             shouldRetry = true;
             addTaskLog('Auto-reply', `Lỗi tư vấn cho khách ${event.sender?.id}: ${error.message}`);
