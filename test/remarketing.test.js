@@ -58,7 +58,9 @@ test('dry-run chỉ đếm job đủ điều kiện, không claim hoặc gửi M
 test('claim được kiểm tra lại rồi chỉ gửi một lần với marker bot và RESPONSE', async () => {
   const store = fakeStore();
   const payloads = [];
-  const fetchImpl = async (_url, init) => {
+  const fetchImpl = async (url, init) => {
+    assert.equal(url.includes('page-token'), false);
+    assert.equal(new Headers(init.headers).get('authorization'), 'Bearer page-token');
     payloads.push(JSON.parse(init.body));
     return Response.json({ message_id: 'mid-remarketing-1' });
   };

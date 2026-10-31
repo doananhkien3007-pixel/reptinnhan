@@ -19,6 +19,8 @@ Chị gửi em chiều cao + cân nặng, em chọn size vừa đẹp cho mình 
 
 The cycle is cancelled when the customer writes again, supplies measurements, declines, an external/manual outbound echo appears, the conversation enters standby, an order is created, the product changes or becomes inactive, or either bot/remarketing is disabled.
 
+Customer activity is recorded before the conversation lock is acquired. The database compares both the Meta event ID and timestamp when the introduction completes, so a reply that arrives while the introduction is still sending prevents a new cycle from being created.
+
 ## Delivery safety
 
 Database functions atomically claim each step with a 45-second lease and a unique attempt key. A timed-out lease becomes `uncertain` and is never retried automatically. Only an explicit HTTP 429 is retried once; network errors, timeouts and 5xx responses become `uncertain` to avoid duplicates.

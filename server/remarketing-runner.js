@@ -107,10 +107,10 @@ export async function runRemarketingBatch({
       let response;
       try {
         response = await fetchImpl(
-          `https://graph.facebook.com/${graphApiVersion}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
+          `https://graph.facebook.com/${graphApiVersion}/me/messages`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pageAccessToken}` },
             body: JSON.stringify({
               recipient: { id: cycle.customer_psid },
               message_type: 'RESPONSE',
