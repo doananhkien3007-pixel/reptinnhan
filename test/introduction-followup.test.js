@@ -83,6 +83,10 @@ test('TH váy báo giá 280K theo từng dòng rồi xin chiều cao và cân n�
   assert.deepEqual(planIntroduction(thVay, [
     '[Ảnh sản phẩm 15:image-1]', previousPromotion, TH_VAY_SIZE_QUESTION
   ]).messages, []);
+  const actualFiveDressProduct = { ...thVay, sku: 'P-1793464317378-2XP8U', name: '5 mẫu' };
+  assert.equal(getPromotionMessage(actualFiveDressProduct), TH_VAY_PROMOTION_MESSAGE);
+  assert.deepEqual(planIntroduction(actualFiveDressProduct, []).messages,
+    [TH_VAY_PROMOTION_MESSAGE, TH_VAY_SIZE_QUESTION]);
 });
 
 test('TH váy lấy đủ toàn bộ 23 ảnh thay vì giới hạn bảy ảnh', () => {

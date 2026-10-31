@@ -339,6 +339,23 @@ test('bot chỉ giới thiệu một lần theo khách + sản phẩm của Ads 
       assert.equal(settings.get('product_intro:customer:15').value.status,'introduced');
       assert.equal(settings.get('product_intro:customer:15').value.actions.length,6);
     });
+    await scenario('video 5 mẫu gửi năm ảnh thành năm tin riêng lẻ', async () => {
+      const images=Array.from({length:5},(_,index)=>({
+        image_url:`https://example.com/five-dress-${index+1}.jpg`,
+        facebook_attachment_id:`five-dress-${index+1}`,
+        sort_order:index+1
+      }));
+      const fiveDress={...adProduct,id:16,sku:'P-1793464317378-2XP8U',name:'5 mẫu',images};
+      extraProducts=[fiveDress]; adMappings.set('52595658414103',16);
+      await deliver('alo',{referral:{ad_id:'52595658414103'},timestamp:1000});
+      assert.equal(sentToMessenger.some(item=>Array.isArray(item.message?.attachments)),false);
+      assert.equal(sentToMessenger.filter(item=>item.message?.attachment?.type==='image').length,5);
+      assert.deepEqual(messageValues(),[
+        ...images.map(image=>image.facebook_attachment_id),
+        TH_VAY_PROMOTION_MESSAGE,TH_VAY_SIZE_QUESTION
+      ]);
+      assert.equal(settings.get('product_intro:customer:16').value.actions.length,7);
+    });
     await scenario('preview nhớ tin báo giá Mango, không gửi lại giá hoặc ảnh', async () => {
       const mango={...adProduct,sku:'MANGO-HQ-HONG-TIM-279'};
       extraProducts=[mango]; adMappings.set('52590312182503',13); conversation.ad_id='52590312182503';

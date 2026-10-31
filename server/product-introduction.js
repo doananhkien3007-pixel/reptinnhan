@@ -24,17 +24,29 @@ const MANGO_PROMOTION_SKUS = new Set([
   'MANGO-HQ-HONG-TIM-279',
   'MANGO-HQ-HOA-7MAU-279'
 ]);
-const TH_VAY_PROMOTION_SKU = 'TH-VAY-20261029';
+export const FIVE_DRESS_VIDEO_SKU = 'P-1793464317378-2XP8U';
+const TH_VAY_PROMOTION_SKUS = new Set([
+  'TH-VAY-20261029',
+  FIVE_DRESS_VIDEO_SKU
+]);
+
+export function isFiveDressVideoProduct(product) {
+  return product?.sku === FIVE_DRESS_VIDEO_SKU;
+}
+
+export function isThVayPromotionProduct(product) {
+  return TH_VAY_PROMOTION_SKUS.has(product?.sku);
+}
 
 export function shouldIntroduceBeforeHandoff(product) {
-  return MANGO_PROMOTION_SKUS.has(product?.sku) || product?.sku === TH_VAY_PROMOTION_SKU;
+  return MANGO_PROMOTION_SKUS.has(product?.sku) || isThVayPromotionProduct(product);
 }
 
 export const normalizeText = (value) => String(value || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
 
 export function getPromotionMessage(product) {
-  if (product?.sku === TH_VAY_PROMOTION_SKU) return TH_VAY_PROMOTION_MESSAGE;
+  if (isThVayPromotionProduct(product)) return TH_VAY_PROMOTION_MESSAGE;
   if (shouldIntroduceBeforeHandoff(product)) return PROMOTION_MESSAGE;
   const price = Number(product.price);
   const salePrice = Number(product.sale_price);
@@ -62,7 +74,7 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
   for (const text of texts) {
     const previousPromotionIndex = PREVIOUS_MANGO_PROMOTION_MESSAGES.indexOf(text);
     const isPreviousMangoPromotion = MANGO_PROMOTION_SKUS.has(product.sku) && previousPromotionIndex >= 0;
-    const isPreviousThVayPromotion = product?.sku === TH_VAY_PROMOTION_SKU &&
+    const isPreviousThVayPromotion = isThVayPromotionProduct(product) &&
       PREVIOUS_TH_VAY_PROMOTION_MESSAGES.includes(text);
     // Historical quotes can be identical across products. The scoped media
     // marker identifies which product the following nameless quote belongs to.
@@ -90,7 +102,7 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
   if (promotionComplete && productQuestions.some(text => /can nang/.test(normalizeText(text)) && /chieu cao/.test(normalizeText(text)))) {
     return { images: [], videos: [], messages: [] };
   }
-  const imageLimit = product?.sku === TH_VAY_PROMOTION_SKU
+  const imageLimit = isThVayPromotionProduct(product)
     ? MAX_TH_VAY_INTRODUCTION_IMAGES
     : MAX_INTRODUCTION_IMAGES;
   const images = [...new Map((product.images || [])
@@ -122,7 +134,7 @@ export function planIntroduction(product, texts, { allowLegacy = false, history 
     messages: [
       ...(legacyPromotionSent ? [] : promotionMessages.filter(message => !sentPromotionMessages.has(message))),
       questions.length === 2
-        ? product?.sku === TH_VAY_PROMOTION_SKU ? TH_VAY_SIZE_QUESTION : SIZE_QUESTION
+        ? isThVayPromotionProduct(product) ? TH_VAY_SIZE_QUESTION : SIZE_QUESTION
         : questions.length ? `Dạ chị cho em xin ${questions[0]}, em tư vấn size cho mình ạ.` : null
     ].filter(Boolean)
   };

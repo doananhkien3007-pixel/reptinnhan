@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createCloudServer } from '../lab/cloud-server.js';
-import { CloudLabService } from '../lab/cloud/service.js';
+import { CloudLabService, FIVE_DRESS_PROMOTION_MESSAGES, FIVE_DRESS_PROMOTION_SKU } from '../lab/cloud/service.js';
 import { SupabaseLabStore } from '../lab/cloud/store.js';
 import { loadProductCatalog, normalizeProductCatalog } from '../lab/cloud/catalog.js';
 import { versions } from '../lab/brain.js';
@@ -74,6 +74,28 @@ test('failed model call preserves history and releases lock; concurrent turn is 
   rejectCall(new Error('Model unavailable')); await assert.rejects(pending);
   assert.equal((await store.get(session, c.id)).state.history.length, 0);
   service.brain = brain; assert.equal((await service.turn(session, c.id, request)).conversation.revision, 1);
+});
+
+test('cloud Lab uses the approved first-turn copy for the actual five-dress SKU', async () => {
+  const store = new TestStore();
+  const fiveDressCatalog = structuredClone(fixtureCatalog);
+  fiveDressCatalog.products[0].sku = FIVE_DRESS_PROMOTION_SKU;
+  const service = new CloudLabService(store, brain, async () => structuredClone(fiveDressCatalog));
+  const session = randomUUID();
+  const conversation = await service.create(session, {
+    ad_id: AD_ID,
+    assistant_config: { model: 'test-model', custom_instructions: '' }
+  });
+  const first = await service.turn(session, conversation.id, {
+    request_id: randomUUID(), revision: 0, message: 'alo', model: 'test-model'
+  });
+  assert.deepEqual(first.conversation.state.history.slice(1).map(message => message.text),
+    FIVE_DRESS_PROMOTION_MESSAGES);
+
+  const second = await service.turn(session, conversation.id, {
+    request_id: randomUUID(), revision: 1, message: 'chị cao 1m60', model: 'test-model'
+  });
+  assert.deepEqual(second.conversation.state.history.slice(-2).map(message => message.text), output().messages);
 });
 
 test('cloud HTTP scopes history by signed cookie, rejects forged cookies and cross-origin writes', async () => {

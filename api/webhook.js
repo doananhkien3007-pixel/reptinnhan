@@ -10,7 +10,7 @@ import { getAdReferral } from '../server/ad-referral.js';
 import { createWorkflowTrace } from '../server/workflow-trace.js';
 import { syncFacebookProfile } from '../server/facebook-profile.js';
 import { readWebhookBody } from '../server/webhook-body.js';
-import { planIntroduction, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
+import { isFiveDressVideoProduct, planIntroduction, shouldIntroduceBeforeHandoff } from '../server/product-introduction.js';
 import { getIntroductionFollowup } from '../server/introduction-followup.js';
 import { readIntroductionState, saveIntroductionState } from '../server/product-introduction-state.js';
 import { authorizeOrders } from '../server/orders.js';
@@ -350,7 +350,8 @@ async function replyToCustomer(recipientId, conversation, receivedText, trace, t
     // Import existing customers once. A Human reset deliberately starts fresh.
     const sentTexts = state ? [] : await getAllSentTexts(recipientId);
     const introduction = planIntroduction(context.product, sentTexts);
-    const canSendAlbum = introduction.images.length > 1 && introduction.images.every(({ image }) =>
+    const canSendAlbum = !isFiveDressVideoProduct(context.product) &&
+      introduction.images.length > 1 && introduction.images.every(({ image }) =>
       /^https:\/\//i.test(String(image?.image_url || '').trim()));
     const actions = [
       ...buildImageActions(introduction.images, canSendAlbum),

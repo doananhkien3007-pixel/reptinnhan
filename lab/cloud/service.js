@@ -4,6 +4,19 @@ import { applyMemory, validateBrain } from '../schema.js';
 import { settings, defaultModel, now, checkedText, fail, uuid } from './settings.js';
 import { loadProductCatalog } from './catalog.js';
 
+export const FIVE_DRESS_PROMOTION_SKU = 'P-1793464317378-2XP8U';
+export const FIVE_DRESS_PROMOTION_MESSAGES = Object.freeze([
+  '🌷 Dạ mẫu này đang ưu đãi còn 280K (giá gốc 450K).\nMiễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn, thoáng mát.\nChe khuyết điểm tốt và giữ phom sau khi giặt ạ 🥰',
+  '⏰ Ưu đãi 40% chỉ áp dụng trong hôm nay chị nha.\nChị cho em xin chiều cao + cân nặng.\nEm chọn size vừa đẹp cho mình ạ 🥰'
+]);
+
+function applyFirstTurnCampaign(output, input) {
+  const product = input.catalog.products.find(item => item.id === input.entry.product_id);
+  return product?.sku === FIVE_DRESS_PROMOTION_SKU
+    ? { ...output, messages: [...FIVE_DRESS_PROMOTION_MESSAGES] }
+    : output;
+}
+
 export class CloudLabService {
   constructor(store, brain = generateBrain, catalogProvider = () => loadProductCatalog(store.client)) { Object.assign(this, { store, brain, catalogProvider }); }
   async create(sessionId, body) {
@@ -48,6 +61,7 @@ export class CloudLabService {
       if (JSON.stringify(input).length > 180000) fail(400, 'Ngữ cảnh đã quá dài. Mở một hội thoại mới; hội thoại cũ vẫn được lưu.');
       const started = Date.now();
       const result = await this.brain(input, model, settings, { customInstructions: assistantConfig.custom_instructions || '' });
+      if (!state.history.length) result.output = applyFirstTurnCampaign(result.output, input);
       validateBrain(result.output, input);
       const run = { id: randomUUID(), output: result.output, model: result.actual_model || model, usage: result.usage, versions: result.versions, response_id: result.response_id, duration_ms: Date.now() - started, created_at: now() };
       if (state.history.length + 1 + run.output.messages.length > settings.max_history_messages) fail(400, 'Hội thoại đã đủ 160 tin. Tạo cuộc trò chuyện mới để tiếp tục; lịch sử cũ vẫn được giữ.');
