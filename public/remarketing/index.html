@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103e2c">
+  <meta name="description" content="LeafChat — Quản lý lịch nhắc lại Messenger độc lập với luồng trả lời tin nhắn.">
+  <title>Remarketing · LeafChat</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/remarketing/remarketing.css">
+  <script src="/app-shell.js" defer></script>
+  <script src="/remarketing/remarketing.js" defer></script>
+</head>
+<body data-page="remarketing">
+  <main class="page-main remarketing-main">
+    <section class="page-heading">
+      <div><span class="eyebrow">CHĂM SÓC TỰ ĐỘNG</span><h1>Remarketing Messenger</h1><p>Quản lý lịch nhắc lại sau giới thiệu sản phẩm, tách biệt hoàn toàn khỏi luồng trả lời trực tiếp.</p></div>
+      <div class="heading-actions"><button id="refresh-remarketing" class="btn" type="button"><span data-icon="refresh"></span>Làm mới</button></div>
+    </section>
+
+    <section class="separation-note" aria-label="Phạm vi công cụ">
+      <span class="separation-icon" data-icon="shield"></span>
+      <div><strong>Không can thiệp luồng rep tin nhắn</strong><p>Trang này chỉ đọc trạng thái và cập nhật cấu hình lịch Remarketing. Hộp thư, webhook nhận tin và logic trả lời khách vẫn hoạt động độc lập.</p></div>
+      <span class="isolation-badge">ĐÃ TÁCH LUỒNG</span>
+    </section>
+
+    <section class="remarketing-metrics" aria-label="Tổng quan Remarketing">
+      <article><span>Chế độ hiện tại</span><strong id="metric-mode">Đang tải…</strong><small id="metric-availability">Đang kiểm tra mô-đun</small></article>
+      <article><span>Đang chờ gửi</span><strong id="metric-scheduled">—</strong><small>Chu kỳ đủ điều kiện đang đợi</small></article>
+      <article><span>Đang xử lý</span><strong id="metric-claimed">—</strong><small>Job đã được tiến trình giữ</small></article>
+      <article><span>Chưa rõ kết quả</span><strong id="metric-uncertain">—</strong><small>Cần kiểm tra thủ công, không tự gửi lại</small></article>
+    </section>
+
+    <div class="remarketing-grid">
+      <section class="remarketing-panel control-panel" aria-labelledby="control-title">
+        <header><div><span class="eyebrow">ĐIỀU KHIỂN</span><h2 id="control-title">Cấu hình gửi</h2></div><span id="mode-badge" class="mode-badge">Đang tải</span></header>
+        <div class="panel-body">
+          <label for="remarketing-admin-token">Mã quản trị</label>
+          <input id="remarketing-admin-token" type="password" autocomplete="off" placeholder="Dùng chung mã quản trị trang Đơn hàng">
+          <label for="remarketing-max-steps">Số lần nhắc tối đa</label>
+          <select id="remarketing-max-steps">
+            <option value="1">1 lần — sau 2 giờ (khuyến nghị)</option>
+            <option value="2">2 lần — lần hai sau 18 giờ</option>
+          </select>
+          <div class="control-actions">
+            <button id="remarketing-dry-run" class="btn" type="button">Bật dry-run</button>
+            <button id="remarketing-enable" class="btn btn-primary" type="button">Bật gửi thật</button>
+            <button id="remarketing-disable" class="btn danger-button" type="button">Tắt Remarketing</button>
+          </div>
+          <p id="remarketing-status" class="remarketing-status" role="status" aria-live="polite">Đang tải trạng thái…</p>
+          <p class="security-note">Mã quản trị chỉ được gửi khi bạn thay đổi cấu hình và không được lưu trong trình duyệt.</p>
+        </div>
+      </section>
+
+      <section class="remarketing-panel" aria-labelledby="logic-title">
+        <header><div><span class="eyebrow">LOGIC HIỆN TẠI</span><h2 id="logic-title">Khi nào hệ thống nhắc lại?</h2></div></header>
+        <div class="panel-body logic-flow">
+          <div class="logic-step"><span>1</span><div><strong>Bot giới thiệu đủ sản phẩm “5 mẫu”</strong><p>Chỉ chu kỳ giới thiệu mới mới được tạo lịch.</p></div></div>
+          <div class="logic-line"></div>
+          <div class="logic-step"><span>2</span><div><strong>Chờ 2 giờ</strong><p>Không gửi trong giờ yên lặng 21:00–08:00 và không vượt cửa sổ Messenger hợp lệ.</p></div></div>
+          <div class="logic-line"></div>
+          <div class="logic-step"><span>3</span><div><strong>Kiểm tra lại ngay trước khi gửi</strong><p>Khách chưa phản hồi, chưa có số đo, chưa chốt đơn và bot vẫn đang bật.</p></div></div>
+          <div class="logic-line optional"></div>
+          <div class="logic-step optional"><span>4</span><div><strong>Lần hai sau 18 giờ — nếu được bật</strong><p>Mặc định hệ thống chỉ gửi một lần để tránh làm phiền khách.</p></div></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="remarketing-grid lower-grid">
+      <section class="remarketing-panel" aria-labelledby="message-title">
+        <header><div><span class="eyebrow">NỘI DUNG GỬI</span><h2 id="message-title">Tin nhắn đã duyệt</h2></div></header>
+        <div class="panel-body"><blockquote>Chị ưng mẫu nào không ạ ?<br>Chị gửi em chiều cao + cân nặng, em chọn size vừa đẹp cho mình nha 🥰</blockquote><p class="panel-note">Remarketing chỉ dùng nội dung cố định này, không gọi AI để tạo câu trả lời mới.</p></div>
+      </section>
+      <section class="remarketing-panel" aria-labelledby="cancel-title">
+        <header><div><span class="eyebrow">DỪNG AN TOÀN</span><h2 id="cancel-title">Tự hủy lịch khi</h2></div></header>
+        <div class="panel-body"><ul class="cancel-list"><li>Khách gửi bất kỳ tin nhắn mới nào</li><li>Đã có chiều cao hoặc cân nặng</li><li>Khách từ chối hoặc đã tạo đơn</li><li>Nhân viên tiếp quản/gửi tin thủ công</li><li>Đổi sản phẩm, sản phẩm ngừng hoạt động</li><li>Bot hoặc Remarketing bị tắt</li></ul></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
