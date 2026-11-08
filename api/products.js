@@ -11,7 +11,9 @@ function normalizeProduct(input = {}) {
     name: String(input.name || '').trim(),
     price: Number(input.price || 0),
     material: String(input.material || '').trim(),
-    size_guide: String(input.size_guide || '').trim()
+    size_guide: String(input.size_guide || '').trim(),
+    consultation_notes: String(input.consultation_notes || '').trim().slice(0, 4000),
+    reply_template: String(input.reply_template || '').trim().slice(0, 4000)
   };
 }
 

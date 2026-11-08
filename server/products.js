@@ -90,6 +90,8 @@ export async function getProductContext(productId) {
     `Chất liệu: ${product.material || 'Chưa cập nhật'}`,
     `Màu: ${colors.length ? colors.join(', ') : 'Chưa cập nhật'}`,
     `Size guide: ${product.size_guide || 'Chưa cập nhật'}`,
+    `Điểm cần tư vấn: ${product.consultation_notes || 'Chưa cập nhật'}`,
+    `Tin nhắn rep mẫu (chỉ tham khảo, không cần chép nguyên văn): ${product.reply_template || 'Chưa cập nhật'}`,
     `Hình ảnh: ${hasSendableImages ? 'Có thể gửi cho khách' : 'Chưa có hình ảnh có thể gửi'}`
   ].join('\n');
 }

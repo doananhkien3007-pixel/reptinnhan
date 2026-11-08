@@ -116,6 +116,22 @@ test('giao diện chuyển file qua server và hiển thị ID Facebook không c
   elements.get('product-search').value = '';
   elements.get('product-sort').value = 'price-low';
   assert.equal(context.filteredProducts()[0].id, 2);
-  context.editProduct({ id: 2, name: 'Áo xanh', price: 0 });
+  context.editProduct({
+    id: 2, name: 'Áo xanh', price: 0,
+    consultation_notes: 'Dáng suông, hợp đi làm',
+    reply_template: 'Dạ mẫu này mặc đi làm rất thanh lịch chị nhé.'
+  });
   assert.equal(elements.get('price').value, 0);
+  assert.equal(elements.get('consultation-notes').value, 'Dáng suông, hợp đi làm');
+  assert.equal(elements.get('reply-template').value, 'Dạ mẫu này mặc đi làm rất thanh lịch chị nhé.');
+  assert.deepEqual(JSON.parse(JSON.stringify(context.readProductForm())), {
+    name: 'Áo xanh', price: 0, material: '', size_guide: '',
+    consultation_notes: 'Dáng suông, hợp đi làm',
+    reply_template: 'Dạ mẫu này mặc đi làm rất thanh lịch chị nhé.'
+  });
+  vm.runInContext(`products = [{
+    id: 3, name: 'Váy rep tốt', price: 249000, material: 'Lụa', size_guide: 'M', colors: ['Xanh'],
+    images: [{image_url: 'dress.jpg'}], consultation_notes: 'Che bụng', reply_template: 'Dạ mẫu này che bụng tốt ạ.'
+  }]; productsLoaded = true; renderProducts();`, context);
+  assert.match(elements.get('products').innerHTML, /Đã có nội dung rep khách/);
 });

@@ -20,6 +20,8 @@ export function describeProduct(product) {
     price_vnd: product.sale_price != null && Number(product.sale_price) > 0 && Number(product.sale_price) < Number(product.price) ? product.sale_price : product.price,
     original_price_vnd: product.price, material: product.material || null,
     colors: product.colors || [], size_guide: product.size_guide || null,
+    consultation_notes: product.consultation_notes || null,
+    reply_template_reference: product.reply_template || null,
     stock: 'Chưa có dữ liệu tồn kho trực tiếp',
     promotion: product.sale_price != null && Number(product.sale_price) > 0 && Number(product.sale_price) < Number(product.price)
       ? { sale_price_vnd: product.sale_price, original_price_vnd: product.price }

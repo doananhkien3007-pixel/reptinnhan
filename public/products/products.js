@@ -49,7 +49,8 @@ let products = [];
     function readProductForm() {
       return {
         name: $('name').value.trim(), price: Number($('price').value || 0),
-        material: $('material').value.trim(), size_guide: $('size-guide').value.trim()
+        material: $('material').value.trim(), size_guide: $('size-guide').value.trim(),
+        consultation_notes: $('consultation-notes').value.trim(), reply_template: $('reply-template').value.trim()
       };
     }
 
@@ -75,7 +76,10 @@ let products = [];
       if (uploading || saving || !product) return;
       editingId = product.id;
       $('form-title').textContent = `Sửa sản phẩm: ${product.name}`;
-      for (const [id, value] of Object.entries({ name: product.name, price: product.price, material: product.material, 'size-guide': product.size_guide })) $(id).value = value ?? '';
+      for (const [id, value] of Object.entries({
+        name: product.name, price: product.price, material: product.material, 'size-guide': product.size_guide,
+        'consultation-notes': product.consultation_notes, 'reply-template': product.reply_template
+      })) $(id).value = value ?? '';
       $('variants').innerHTML = '';
       (product.variants || []).forEach(addVariantRow);
       if (!product.variants?.length) addVariantRow();
@@ -170,7 +174,8 @@ let products = [];
             <h3>${escapeHtml(product.name)}</h3><p class="product-material">${escapeHtml(product.material || 'Chưa có thông tin chất liệu')}</p>
             <div class="product-price">${Number(product.price || 0).toLocaleString('vi-VN')}<span>₫</span></div>
             <div class="product-colors">${colors.slice(0, 3).map(color => '<span>' + escapeHtml(color) + '</span>').join('') || '<span class="no-color">Chưa thêm màu</span>'}${colors.length > 3 ? '<span>+' + (colors.length - 3) + '</span>' : ''}</div>
-            <div class="readiness ${missing.length ? 'needs-info' : ''}">${productIcon(missing.length ? 'spark' : 'check')}<span>${missing.length ? 'Bổ sung ' + escapeHtml(missing.join(', ')) : 'Đủ thông tin tư vấn'}</span></div>
+            <div class="reply-readiness ${product.consultation_notes?.trim() || product.reply_template?.trim() ? '' : 'missing'}">${productIcon(product.consultation_notes?.trim() || product.reply_template?.trim() ? 'check' : 'spark')}<span>${product.consultation_notes?.trim() || product.reply_template?.trim() ? 'Đã có nội dung rep khách' : 'Chưa có nội dung rep khách'}</span></div>
+            <div class="readiness ${missing.length ? 'needs-info' : ''}">${productIcon(missing.length ? 'spark' : 'check')}<span>${missing.length ? 'Bổ sung ' + escapeHtml(missing.join(', ')) : 'Đủ thông tin sản phẩm'}</span></div>
           </div>
           <footer class="product-card-footer"><button type="button" class="btn edit-button" data-edit="${product.id}">${productIcon('box')}Chỉnh sửa</button>
             <button type="button" class="text-button" data-toggle="${product.id}" data-status="${active ? 'active' : 'inactive'}" aria-label="${active ? 'Tạm ẩn' : 'Mở bán'} ${escapeHtml(product.name)}">${active ? 'Tạm ẩn' : 'Mở bán'}</button>
