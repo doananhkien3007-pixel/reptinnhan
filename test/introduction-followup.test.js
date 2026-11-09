@@ -68,9 +68,9 @@ test('các SKU Mango dùng chung hai bong bóng tư vấn đã cấu hình', () 
   assert.equal(PROMOTION_MESSAGE.split('\n').length, 2);
 });
 
-test('TH váy báo giá 280K theo từng dòng rồi xin chiều cao và cân nặng', () => {
+test('TH váy báo giá 279k theo từng dòng rồi xin chiều cao và cân nặng', () => {
   const thVay = { ...product, id: 15, sku: 'TH-VAY-20261029', name: 'TH váy' };
-  assert.equal(TH_VAY_PROMOTION_MESSAGE, '🌷 Dạ mẫu này đang ưu đãi còn 280K (giá gốc 450K).\nMiễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn, thoáng mát.\nChe khuyết điểm tốt và giữ phom sau khi giặt ạ 🥰');
+  assert.equal(TH_VAY_PROMOTION_MESSAGE, '🌷 Dạ mẫu này đang ưu đãi còn 279k (giá gốc 450K).\nMiễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn, thoáng mát.\nChe khuyết điểm tốt và giữ phom sau khi giặt ạ 🥰');
   assert.equal(TH_VAY_SIZE_QUESTION, '⏰ Ưu đãi 40% chỉ áp dụng trong hôm nay chị nha.\nChị cho em xin chiều cao + cân nặng.\nEm chọn size vừa đẹp cho mình ạ 🥰');
   assert.equal(getPromotionMessage(thVay), TH_VAY_PROMOTION_MESSAGE);
   assert.deepEqual(getPromotionMessages(thVay), [TH_VAY_PROMOTION_MESSAGE]);

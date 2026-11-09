@@ -6,7 +6,7 @@ import { loadProductCatalog } from './catalog.js';
 
 export const FIVE_DRESS_PROMOTION_SKU = 'P-1793464317378-2XP8U';
 export const FIVE_DRESS_PROMOTION_MESSAGES = Object.freeze([
-  '🌷 Dạ mẫu này đang ưu đãi còn 280K (giá gốc 450K).\nMiễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn, thoáng mát.\nChe khuyết điểm tốt và giữ phom sau khi giặt ạ 🥰',
+  '🌷 Dạ mẫu này đang ưu đãi còn 279k (giá gốc 450K).\nMiễn phí ship chị nha.\nChất vải lụa Mango Hàn Quốc mềm mịn, thoáng mát.\nChe khuyết điểm tốt và giữ phom sau khi giặt ạ 🥰',
   '⏰ Ưu đãi 40% chỉ áp dụng trong hôm nay chị nha.\nChị cho em xin chiều cao + cân nặng.\nEm chọn size vừa đẹp cho mình ạ 🥰'
 ]);
 
